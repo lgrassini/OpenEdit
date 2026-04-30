@@ -1,0 +1,198 @@
+import AppKit
+
+// MARK: - Custom attribute keys
+
+extension NSAttributedString.Key {
+    /// Block-type tag stored as NSNumber:
+    ///   0     = paragraph
+    ///   1–4   = heading at that outline level
+    ///   10    = list item, depth 0 (top-level)
+    ///   11    = list item, depth 1
+    ///   12    = list item, depth 2
+    static let odtBlockType  = NSAttributedString.Key("dev.openedit.blockType")
+
+    /// NSNumber(1) marks the bullet/marker prefix of a list item (non-content).
+    static let odtListMarker = NSAttributedString.Key("dev.openedit.listMarker")
+}
+
+// MARK: - Shared style look-up (used by renderer AND toolbar)
+
+extension ModelRenderer {
+
+    /// Canonical font for a given block code (0=paragraph, 1-4=heading level).
+    static func font(for code: Int) -> NSFont {
+        switch code {
+        case 1: return .boldSystemFont(ofSize: 20)
+        case 2: return .boldSystemFont(ofSize: 17)
+        case 3: return .boldSystemFont(ofSize: 14)
+        case 4: return .boldSystemFont(ofSize: 12)
+        default: return .systemFont(ofSize: 12)
+        }
+    }
+
+    /// Canonical paragraph style for a given block code.
+    static func paragraphStyle(for code: Int) -> NSParagraphStyle {
+        let s = NSMutableParagraphStyle()
+        switch code {
+        case 1, 2: s.paragraphSpacingBefore = 8; s.lineSpacing = 2
+        case 3, 4: s.paragraphSpacingBefore = 4; s.lineSpacing = 2
+        default:   s.lineSpacing = 2
+        }
+        return s
+    }
+}
+
+// MARK: - Renderer
+
+struct ModelRenderer {
+
+    func render(_ model: DocumentModel) -> NSAttributedString {
+        let out = NSMutableAttributedString()
+        let blocks = model.blocks.isEmpty ? [Block.paragraph(Paragraph())] : model.blocks
+        var first = true
+        for block in blocks {
+            switch block {
+            case .image: continue
+            default: break
+            }
+            if !first { out.append(nl) }
+            first = false
+            out.append(renderBlock(block))
+        }
+        return out
+    }
+
+    // MARK: Blocks
+
+    private var nl: NSAttributedString { NSAttributedString(string: "\n") }
+
+    private func renderBlock(_ block: Block) -> NSAttributedString {
+        switch block {
+        case .paragraph(let p): return renderParagraph(p)
+        case .heading(let h):   return renderHeading(h)
+        case .list(let l):      return renderListItems(l, depth: 0)
+        case .image:            return NSAttributedString()
+        }
+    }
+
+    private func renderParagraph(_ p: Paragraph) -> NSAttributedString {
+        let font = ModelRenderer.font(for: 0)
+        let base = blockAttrs(code: 0, font: font, ps: ModelRenderer.paragraphStyle(for: 0))
+        return applyRuns(p.runs, base: base, baseFont: font)
+    }
+
+    private func renderHeading(_ h: Heading) -> NSAttributedString {
+        let font = ModelRenderer.font(for: h.level)
+        let base = blockAttrs(code: h.level, font: font,
+                              ps: ModelRenderer.paragraphStyle(for: h.level))
+        return applyRuns(h.runs, base: base, baseFont: font)
+    }
+
+    private func renderListItems(_ list: ODTList, depth: Int) -> NSAttributedString {
+        let out   = NSMutableAttributedString()
+        let font  = ModelRenderer.font(for: 0)
+        let code  = 10 + depth
+        let ps    = listStyle(depth: depth)
+        let bullets = ["• ", "◦ ", "▪ "]
+        let bullet  = depth < bullets.count ? bullets[depth] : "▪ "
+
+        var first = true
+        for item in list.items {
+            if !first { out.append(nl) }
+            first = false
+
+            let base = blockAttrs(code: code, font: font, ps: ps)
+
+            // Bullet prefix — tagged as non-content
+            var markerAttrs = base
+            markerAttrs[.odtListMarker] = NSNumber(value: 1)
+            out.append(NSAttributedString(string: bullet, attributes: markerAttrs))
+
+            // Content runs
+            out.append(applyRuns(item.runs, base: base, baseFont: font))
+
+            // Nested sublist
+            if let sub = item.sublist {
+                out.append(nl)
+                out.append(renderListItems(sub, depth: depth + 1))
+            }
+        }
+        return out
+    }
+
+    // MARK: Runs
+
+    private func applyRuns(_ runs: [Run],
+                            base: [NSAttributedString.Key: Any],
+                            baseFont: NSFont) -> NSAttributedString {
+        if runs.isEmpty { return NSAttributedString(string: "", attributes: base) }
+        let out = NSMutableAttributedString()
+        for run in runs {
+            var a = base
+            a[.font] = resolvedFont(run.props, baseFont: baseFont)
+            if run.props.isStrikethrough {
+                a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            } else {
+                a[.strikethroughStyle] = 0
+            }
+            if let hex = run.props.color, let c = NSColor(odtHex: hex) {
+                a[.foregroundColor] = c
+            }
+            out.append(NSAttributedString(string: run.text, attributes: a))
+        }
+        return out
+    }
+
+    // MARK: Font helpers
+
+    private func resolvedFont(_ props: TextProperties, baseFont: NSFont) -> NSFont {
+        let size = props.fontSize.map { CGFloat($0) } ?? baseFont.pointSize
+        let desc: NSFontDescriptor = props.fontName != nil
+            ? NSFontDescriptor(name: props.fontName!, size: size)
+            : baseFont.fontDescriptor.withSize(size)
+
+        var traits = desc.symbolicTraits
+        if let b = props.bold   { if b { traits.insert(.bold)   } else { traits.remove(.bold) } }
+        if let i = props.italic { if i { traits.insert(.italic) } else { traits.remove(.italic) } }
+        let updated = desc.withSymbolicTraits(traits)
+        return NSFont(descriptor: updated, size: size)
+            ?? NSFont(descriptor: desc, size: size)
+            ?? baseFont
+    }
+
+    // MARK: Paragraph styles
+
+    private func listStyle(depth: Int) -> NSParagraphStyle {
+        let indent = CGFloat(depth + 1) * 18
+        let s = NSMutableParagraphStyle()
+        s.firstLineHeadIndent = indent
+        s.headIndent = indent + 16
+        return s
+    }
+
+    // MARK: Helpers
+
+    private func blockAttrs(code: Int,
+                             font: NSFont,
+                             ps: NSParagraphStyle) -> [NSAttributedString.Key: Any] {
+        [
+            .odtBlockType:    NSNumber(value: code),
+            .font:            font,
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle:  ps
+        ]
+    }
+}
+
+// MARK: - NSColor hex init
+
+extension NSColor {
+    convenience init?(odtHex hex: String) {
+        let s = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        guard s.count == 6, let v = UInt32(s, radix: 16) else { return nil }
+        self.init(red:   CGFloat((v >> 16) & 0xFF) / 255,
+                  green: CGFloat((v >>  8) & 0xFF) / 255,
+                  blue:  CGFloat( v        & 0xFF) / 255,
+                  alpha: 1)
+    }
+}
