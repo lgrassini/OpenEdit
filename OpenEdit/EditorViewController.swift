@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 // MARK: - Toolbar item identifiers
 
@@ -7,8 +8,12 @@ private extension NSToolbarItem.Identifier {
     static let bold           = NSToolbarItem.Identifier("bold")
     static let italic         = NSToolbarItem.Identifier("italic")
     static let strikethrough  = NSToolbarItem.Identifier("strikethrough")
+    static let bullets        = NSToolbarItem.Identifier("bullets")
+    static let increaseIndent = NSToolbarItem.Identifier("increaseIndent")
+    static let decreaseIndent = NSToolbarItem.Identifier("decreaseIndent")
     static let fontSize       = NSToolbarItem.Identifier("fontSize")
     static let color          = NSToolbarItem.Identifier("color")
+    static let insertImage    = NSToolbarItem.Identifier("insertImage")
 }
 
 // MARK: - EditorViewController
@@ -27,6 +32,7 @@ final class EditorViewController: NSViewController {
     private var boldButton:    NSButton?
     private var italicButton:  NSButton?
     private var strikeButton:  NSButton?
+    private var bulletsButton: NSButton?
     private var fontSizeField: NSTextField?
     private var colorWell:     NSColorWell?
 
@@ -85,7 +91,7 @@ final class EditorViewController: NSViewController {
 
     func loadFromDocument() {
         guard let doc = odtDocument else { return }
-        let attrStr = ModelRenderer().render(doc.model)
+        let attrStr = ModelRenderer().render(doc.model, pictures: doc.package.pictures)
         textView.textStorage?.setAttributedString(attrStr)
         updateToolbarState()
     }
@@ -118,6 +124,9 @@ final class EditorViewController: NSViewController {
         let ps   = ModelRenderer.paragraphStyle(for: code)
         storage.beginEditing()
         enumerateParagraphs(in: textView.selectedRange(), storage: storage) { pr in
+            let existing = (storage.attribute(.odtBlockType, at: pr.location,
+                                              effectiveRange: nil) as? NSNumber)?.intValue ?? 0
+            guard existing != -1 else { return } // skip image blocks
             storage.addAttribute(.odtBlockType,   value: NSNumber(value: code), range: pr)
             storage.addAttribute(.font,           value: font,                  range: pr)
             storage.addAttribute(.paragraphStyle, value: ps,                    range: pr)
@@ -169,6 +178,203 @@ final class EditorViewController: NSViewController {
 
     @objc func colorChanged(_ sender: NSColorWell) {
         applyAttribute(.foregroundColor, value: sender.color)
+    }
+
+    // MARK: - Bullets
+
+    @objc func toggleBullets(_ sender: NSButton) {
+        guard let storage = textView.textStorage else { return }
+        var paraInfos: [(range: NSRange, code: Int)] = []
+        enumerateParagraphs(in: textView.selectedRange(), storage: storage) { pr in
+            let code = (storage.attribute(.odtBlockType, at: pr.location,
+                                          effectiveRange: nil) as? NSNumber)?.intValue ?? 0
+            paraInfos.append((pr, code))
+        }
+
+        let nonImageInfos = paraInfos.filter { $0.code != -1 }
+        let allAreLists   = nonImageInfos.allSatisfy { $0.code >= 10 }
+
+        storage.beginEditing()
+        for info in paraInfos.reversed() {
+            guard info.code != -1 else { continue }
+            if allAreLists {
+                removeBullet(from: info.range, in: storage)
+            } else if info.code < 10 {
+                addBullet(to: info.range, depth: 0, in: storage)
+            }
+        }
+        storage.endEditing()
+        textView.didChangeText()
+        odtDocument?.markAsEdited()
+        updateToolbarState()
+    }
+
+    @objc func increaseIndent(_ sender: Any) { adjustIndent(delta: +1) }
+    @objc func decreaseIndent(_ sender: Any) { adjustIndent(delta: -1) }
+
+    private func adjustIndent(delta: Int) {
+        guard let storage = textView.textStorage else { return }
+        var paraInfos: [(range: NSRange, code: Int)] = []
+        enumerateParagraphs(in: textView.selectedRange(), storage: storage) { pr in
+            let code = (storage.attribute(.odtBlockType, at: pr.location,
+                                          effectiveRange: nil) as? NSNumber)?.intValue ?? 0
+            paraInfos.append((pr, code))
+        }
+
+        storage.beginEditing()
+        for info in paraInfos.reversed() {
+            guard info.code >= 10 else { continue }
+            let currentDepth = info.code - 10
+            let newDepth     = currentDepth + delta
+            if newDepth < 0 {
+                removeBullet(from: info.range, in: storage)
+            } else if newDepth <= 2 {
+                changeBulletDepth(in: info.range, to: newDepth, in: storage)
+            }
+        }
+        storage.endEditing()
+        textView.didChangeText()
+        odtDocument?.markAsEdited()
+        updateToolbarState()
+    }
+
+    // MARK: - Insert Image
+
+    @objc func insertImage(_ sender: Any) {
+        guard let window = view.window else { return }
+        let panel = NSOpenPanel()
+        panel.title                  = "Insert Image"
+        panel.allowedContentTypes    = [.jpeg, .png]
+        panel.allowsMultipleSelection = false
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            self?.insertImage(from: url)
+        }
+    }
+
+    private func insertImage(from url: URL) {
+        guard let storage   = textView.textStorage,
+              let imageData = try? Data(contentsOf: url),
+              let nsImage   = NSImage(data: imageData) else { return }
+
+        let ext      = url.pathExtension.lowercased().isEmpty ? "png" : url.pathExtension.lowercased()
+        let uid      = UUID().uuidString.prefix(8)
+        let href     = "Pictures/image_\(uid).\(ext)"
+
+        // Store image data in the package for ODT serialization
+        odtDocument?.package.pictures[href] = imageData
+
+        // Scale to fit the editor's text width
+        let maxWidth: CGFloat = 440
+        let scale      = min(1.0, maxWidth / nsImage.size.width)
+        let displaySize = NSSize(width:  nsImage.size.width  * scale,
+                                 height: nsImage.size.height * scale)
+
+        let attachment        = NSTextAttachment()
+        attachment.image      = nsImage
+        attachment.bounds     = NSRect(origin: .zero, size: displaySize)
+
+        let attachStr = NSMutableAttributedString(attachment: attachment)
+        attachStr.addAttributes([.odtBlockType: NSNumber(value: -1),
+                                  .odtImageHref: href],
+                                range: NSRange(location: 0, length: 1))
+
+        // Insert the image on its own line
+        let sel = textView.selectedRange()
+        let str = storage.string as NSString
+        let needsBefore = sel.location > 0 && str.character(at: sel.location - 1) != 10
+        let needsAfter  = sel.location < storage.length
+
+        let insertion = NSMutableAttributedString()
+        if needsBefore { insertion.append(NSAttributedString(string: "\n")) }
+        insertion.append(attachStr)
+        if needsAfter  { insertion.append(NSAttributedString(string: "\n")) }
+
+        storage.beginEditing()
+        storage.replaceCharacters(in: sel, with: insertion)
+        storage.endEditing()
+        textView.didChangeText()
+        odtDocument?.markAsEdited()
+    }
+
+    // MARK: - Bullet helpers
+
+    private func addBullet(to paraRange: NSRange, depth: Int, in storage: NSTextStorage) {
+        let code   = 10 + depth
+        let bullet = bulletString(for: depth)
+        let font   = ModelRenderer.font(for: 0)
+        let ps     = ModelRenderer.listParagraphStyle(for: depth)
+
+        let markerAttrs: [NSAttributedString.Key: Any] = [
+            .odtBlockType: NSNumber(value: code),
+            .odtListMarker: NSNumber(value: 1),
+            .font: font,
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: ps
+        ]
+        storage.insert(NSAttributedString(string: bullet, attributes: markerAttrs), at: paraRange.location)
+
+        // Update attributes for the content (original paragraph length, now after the bullet)
+        let contentRange = NSRange(location: paraRange.location + bullet.count,
+                                   length: paraRange.length)
+        if contentRange.length > 0 {
+            storage.addAttribute(.odtBlockType,   value: NSNumber(value: code), range: contentRange)
+            storage.addAttribute(.paragraphStyle, value: ps,                    range: contentRange)
+        }
+    }
+
+    private func removeBullet(from paraRange: NSRange, in storage: NSTextStorage) {
+        var markerRange = NSRange(location: NSNotFound, length: 0)
+        storage.enumerateAttribute(.odtListMarker, in: paraRange, options: []) { val, r, stop in
+            if (val as? NSNumber)?.intValue == 1 {
+                markerRange = markerRange.location == NSNotFound ? r : NSUnionRange(markerRange, r)
+            }
+        }
+        if markerRange.location != NSNotFound {
+            storage.deleteCharacters(in: markerRange)
+            let adjusted = NSRange(location: markerRange.location,
+                                   length:   paraRange.length - markerRange.length)
+            if adjusted.length > 0 {
+                storage.addAttribute(.odtBlockType,   value: NSNumber(value: 0),                     range: adjusted)
+                storage.addAttribute(.paragraphStyle, value: ModelRenderer.paragraphStyle(for: 0),   range: adjusted)
+            }
+        } else {
+            storage.addAttribute(.odtBlockType,   value: NSNumber(value: 0),                   range: paraRange)
+            storage.addAttribute(.paragraphStyle, value: ModelRenderer.paragraphStyle(for: 0), range: paraRange)
+        }
+    }
+
+    private func changeBulletDepth(in paraRange: NSRange, to newDepth: Int, in storage: NSTextStorage) {
+        let newCode   = 10 + newDepth
+        let newBullet = bulletString(for: newDepth)
+        let newPS     = ModelRenderer.listParagraphStyle(for: newDepth)
+
+        var markerRange = NSRange(location: paraRange.location, length: 0)
+        storage.enumerateAttribute(.odtListMarker, in: paraRange, options: []) { val, r, stop in
+            if (val as? NSNumber)?.intValue == 1 { markerRange = r; stop.pointee = true }
+        }
+
+        let markerAttrs: [NSAttributedString.Key: Any] = [
+            .odtBlockType: NSNumber(value: newCode),
+            .odtListMarker: NSNumber(value: 1),
+            .font: ModelRenderer.font(for: 0),
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: newPS
+        ]
+        storage.replaceCharacters(in: markerRange,
+                                  with: NSAttributedString(string: newBullet, attributes: markerAttrs))
+
+        let contentStart  = markerRange.location + newBullet.count
+        let contentLength = paraRange.length - markerRange.length
+        if contentLength > 0 {
+            let contentRange = NSRange(location: contentStart, length: contentLength)
+            storage.addAttribute(.odtBlockType,   value: NSNumber(value: newCode), range: contentRange)
+            storage.addAttribute(.paragraphStyle, value: newPS,                    range: contentRange)
+        }
+    }
+
+    private func bulletString(for depth: Int) -> String {
+        switch depth { case 0: return "• "; case 1: return "◦ "; default: return "▪ " }
     }
 
     // MARK: - Formatting helpers
@@ -242,6 +448,7 @@ final class EditorViewController: NSViewController {
     func updateToolbarState() {
         guard let storage = textView.textStorage, storage.length > 0 else {
             stylePicker?.selectItem(at: 0)
+            bulletsButton?.state = .off
             return
         }
         let sel   = textView.selectedRange()
@@ -251,8 +458,8 @@ final class EditorViewController: NSViewController {
         let attrs = storage.attributes(at: probe, effectiveRange: nil)
         let code  = (attrs[.odtBlockType] as? NSNumber)?.intValue ?? 0
 
-        // Style picker — list items (code ≥ 10) show as Body
-        stylePicker?.selectItem(at: code >= 10 ? 0 : max(0, min(4, code)))
+        stylePicker?.selectItem(at: code >= 10 || code == -1 ? 0 : max(0, min(4, code)))
+        bulletsButton?.state = code >= 10 ? .on : .off
 
         if let font = attrs[.font] as? NSFont {
             let traits = font.fontDescriptor.symbolicTraits
@@ -291,7 +498,11 @@ extension EditorViewController: NSToolbarDelegate {
         [.stylePicker, .flexibleSpace,
          .bold, .italic, .strikethrough,
          .space,
-         .fontSize, .color]
+         .bullets, .increaseIndent, .decreaseIndent,
+         .space,
+         .fontSize, .color,
+         .space,
+         .insertImage]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -319,34 +530,34 @@ extension EditorViewController: NSToolbarDelegate {
             item.label  = "Style"
 
         case .bold:
-            let btn = toggleButton(
-                symbol: "bold",
-                label:  "Bold",
-                action: #selector(toggleBold(_:))
-            )
-            boldButton = btn
-            item.view  = btn
-            item.label = "Bold"
+            let btn = toggleButton(symbol: "bold",   label: "Bold",
+                                   action: #selector(toggleBold(_:)))
+            boldButton = btn;  item.view = btn;  item.label = "Bold"
 
         case .italic:
-            let btn = toggleButton(
-                symbol: "italic",
-                label:  "Italic",
-                action: #selector(toggleItalic(_:))
-            )
-            italicButton = btn
-            item.view    = btn
-            item.label   = "Italic"
+            let btn = toggleButton(symbol: "italic", label: "Italic",
+                                   action: #selector(toggleItalic(_:)))
+            italicButton = btn;  item.view = btn;  item.label = "Italic"
 
         case .strikethrough:
-            let btn = toggleButton(
-                symbol: "strikethrough",
-                label:  "Strikethrough",
-                action: #selector(toggleStrikethrough(_:))
-            )
-            strikeButton = btn
-            item.view    = btn
-            item.label   = "Strikethrough"
+            let btn = toggleButton(symbol: "strikethrough", label: "Strikethrough",
+                                   action: #selector(toggleStrikethrough(_:)))
+            strikeButton = btn;  item.view = btn;  item.label = "Strikethrough"
+
+        case .bullets:
+            let btn = toggleButton(symbol: "list.bullet", label: "Bullets",
+                                   action: #selector(toggleBullets(_:)))
+            bulletsButton = btn;  item.view = btn;  item.label = "Bullets"
+
+        case .increaseIndent:
+            let btn = momentaryButton(symbol: "increase.indent", label: "Increase Indent",
+                                      action: #selector(increaseIndent(_:)))
+            item.view = btn;  item.label = "Increase Indent"
+
+        case .decreaseIndent:
+            let btn = momentaryButton(symbol: "decrease.indent", label: "Decrease Indent",
+                                      action: #selector(decreaseIndent(_:)))
+            item.view = btn;  item.label = "Decrease Indent"
 
         case .fontSize:
             let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 44, height: 22))
@@ -355,18 +566,19 @@ extension EditorViewController: NSToolbarDelegate {
             field.target            = self
             field.action            = #selector(fontSizeChanged(_:))
             field.widthAnchor.constraint(equalToConstant: 44).isActive = true
-            fontSizeField = field
-            item.view     = field
-            item.label    = "Size"
+            fontSizeField = field;  item.view = field;  item.label = "Size"
 
         case .color:
             let well = NSColorWell(frame: NSRect(x: 0, y: 0, width: 36, height: 24))
             well.color  = .labelColor
             well.target = self
             well.action = #selector(colorChanged(_:))
-            colorWell   = well
-            item.view   = well
-            item.label  = "Color"
+            colorWell   = well;  item.view = well;  item.label = "Color"
+
+        case .insertImage:
+            let btn = momentaryButton(symbol: "photo.badge.plus", label: "Insert Image",
+                                      action: #selector(insertImage(_:)))
+            item.view = btn;  item.label = "Insert Image"
 
         default:
             return nil
@@ -375,18 +587,28 @@ extension EditorViewController: NSToolbarDelegate {
         return item
     }
 
-    // MARK: Toolbar helpers
+    // MARK: Button factory helpers
 
     private func toggleButton(symbol: String,
                                label: String,
                                action: Selector) -> NSButton {
         let btn = NSButton(frame: NSRect(x: 0, y: 0, width: 32, height: 24))
-        btn.image       = NSImage(systemSymbolName: symbol,
-                                  accessibilityDescription: label)
-        btn.bezelStyle  = .texturedRounded
+        btn.image      = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+        btn.bezelStyle = .texturedRounded
         btn.setButtonType(.toggle)
-        btn.target      = self
-        btn.action      = action
+        btn.target     = self
+        btn.action     = action
+        return btn
+    }
+
+    private func momentaryButton(symbol: String,
+                                  label: String,
+                                  action: Selector) -> NSButton {
+        let btn = NSButton(frame: NSRect(x: 0, y: 0, width: 32, height: 24))
+        btn.image      = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+        btn.bezelStyle = .texturedRounded
+        btn.target     = self
+        btn.action     = action
         return btn
     }
 }

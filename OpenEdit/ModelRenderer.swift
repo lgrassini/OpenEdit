@@ -4,8 +4,9 @@ import AppKit
 
 extension NSAttributedString.Key {
     /// Block-type tag stored as NSNumber:
-    ///   0     = paragraph
-    ///   1–4   = heading at that outline level
+    ///   -1    = image block
+    ///    0    = paragraph
+    ///    1–4  = heading at that outline level
     ///   10    = list item, depth 0 (top-level)
     ///   11    = list item, depth 1
     ///   12    = list item, depth 2
@@ -13,13 +14,16 @@ extension NSAttributedString.Key {
 
     /// NSNumber(1) marks the bullet/marker prefix of a list item (non-content).
     static let odtListMarker = NSAttributedString.Key("dev.openedit.listMarker")
+
+    /// String: the Pictures/ href of an embedded image attachment.
+    static let odtImageHref  = NSAttributedString.Key("dev.openedit.imageHref")
 }
 
 // MARK: - Shared style look-up (used by renderer AND toolbar)
 
 extension ModelRenderer {
 
-    /// Canonical font for a given block code (0=paragraph, 1-4=heading level).
+    /// Canonical font for a given block code (0 = paragraph, 1–4 = heading level).
     static func font(for code: Int) -> NSFont {
         switch code {
         case 1: return .boldSystemFont(ofSize: 20)
@@ -40,24 +44,32 @@ extension ModelRenderer {
         }
         return s
     }
+
+    /// Canonical paragraph style for a list item at the given depth.
+    static func listParagraphStyle(for depth: Int) -> NSParagraphStyle {
+        let indent = CGFloat(depth + 1) * 18
+        let s = NSMutableParagraphStyle()
+        s.firstLineHeadIndent = indent
+        s.headIndent = indent + 16
+        return s
+    }
 }
 
 // MARK: - Renderer
 
 struct ModelRenderer {
 
-    func render(_ model: DocumentModel) -> NSAttributedString {
+    /// Render a DocumentModel into an NSAttributedString for display in NSTextView.
+    /// Pass the package's pictures dictionary so embedded images are resolved.
+    func render(_ model: DocumentModel,
+                pictures: [String: Data] = [:]) -> NSAttributedString {
         let out = NSMutableAttributedString()
         let blocks = model.blocks.isEmpty ? [Block.paragraph(Paragraph())] : model.blocks
         var first = true
         for block in blocks {
-            switch block {
-            case .image: continue
-            default: break
-            }
             if !first { out.append(nl) }
             first = false
-            out.append(renderBlock(block))
+            out.append(renderBlock(block, pictures: pictures))
         }
         return out
     }
@@ -66,12 +78,12 @@ struct ModelRenderer {
 
     private var nl: NSAttributedString { NSAttributedString(string: "\n") }
 
-    private func renderBlock(_ block: Block) -> NSAttributedString {
+    private func renderBlock(_ block: Block, pictures: [String: Data]) -> NSAttributedString {
         switch block {
         case .paragraph(let p): return renderParagraph(p)
         case .heading(let h):   return renderHeading(h)
         case .list(let l):      return renderListItems(l, depth: 0)
-        case .image:            return NSAttributedString()
+        case .image(let img):   return renderImage(img, pictures: pictures)
         }
     }
 
@@ -89,10 +101,10 @@ struct ModelRenderer {
     }
 
     private func renderListItems(_ list: ODTList, depth: Int) -> NSAttributedString {
-        let out   = NSMutableAttributedString()
-        let font  = ModelRenderer.font(for: 0)
-        let code  = 10 + depth
-        let ps    = listStyle(depth: depth)
+        let out    = NSMutableAttributedString()
+        let font   = ModelRenderer.font(for: 0)
+        let code   = 10 + depth
+        let ps     = ModelRenderer.listParagraphStyle(for: depth)
         let bullets = ["• ", "◦ ", "▪ "]
         let bullet  = depth < bullets.count ? bullets[depth] : "▪ "
 
@@ -103,21 +115,43 @@ struct ModelRenderer {
 
             let base = blockAttrs(code: code, font: font, ps: ps)
 
-            // Bullet prefix — tagged as non-content
             var markerAttrs = base
             markerAttrs[.odtListMarker] = NSNumber(value: 1)
             out.append(NSAttributedString(string: bullet, attributes: markerAttrs))
-
-            // Content runs
             out.append(applyRuns(item.runs, base: base, baseFont: font))
 
-            // Nested sublist
             if let sub = item.sublist {
                 out.append(nl)
                 out.append(renderListItems(sub, depth: depth + 1))
             }
         }
         return out
+    }
+
+    private func renderImage(_ img: ImageBlock, pictures: [String: Data]) -> NSAttributedString {
+        guard let data = pictures[img.href],
+              let nsImage = NSImage(data: data) else {
+            // Placeholder when image data is unavailable
+            let s = NSMutableParagraphStyle(); s.alignment = .center
+            return NSAttributedString(
+                string: "[\(URL(fileURLWithPath: img.href).lastPathComponent)]",
+                attributes: [.odtBlockType: NSNumber(value: -1),
+                             .paragraphStyle: s])
+        }
+        let maxWidth: CGFloat = 440
+        let scale = min(1.0, maxWidth / nsImage.size.width)
+        let size  = NSSize(width:  nsImage.size.width  * scale,
+                           height: nsImage.size.height * scale)
+
+        let attachment        = NSTextAttachment()
+        attachment.image      = nsImage
+        attachment.bounds     = NSRect(origin: .zero, size: size)
+
+        let str = NSMutableAttributedString(attachment: attachment)
+        str.addAttributes([.odtBlockType: NSNumber(value: -1),
+                           .odtImageHref: img.href],
+                          range: NSRange(location: 0, length: 1))
+        return str
     }
 
     // MARK: Runs
@@ -130,11 +164,8 @@ struct ModelRenderer {
         for run in runs {
             var a = base
             a[.font] = resolvedFont(run.props, baseFont: baseFont)
-            if run.props.isStrikethrough {
-                a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
-            } else {
-                a[.strikethroughStyle] = 0
-            }
+            a[.strikethroughStyle] = run.props.isStrikethrough
+                ? NSUnderlineStyle.single.rawValue : 0
             if let hex = run.props.color, let c = NSColor(odtHex: hex) {
                 a[.foregroundColor] = c
             }
@@ -156,18 +187,8 @@ struct ModelRenderer {
         if let i = props.italic { if i { traits.insert(.italic) } else { traits.remove(.italic) } }
         let updated = desc.withSymbolicTraits(traits)
         return NSFont(descriptor: updated, size: size)
-            ?? NSFont(descriptor: desc, size: size)
+            ?? NSFont(descriptor: desc,    size: size)
             ?? baseFont
-    }
-
-    // MARK: Paragraph styles
-
-    private func listStyle(depth: Int) -> NSParagraphStyle {
-        let indent = CGFloat(depth + 1) * 18
-        let s = NSMutableParagraphStyle()
-        s.firstLineHeadIndent = indent
-        s.headIndent = indent + 16
-        return s
     }
 
     // MARK: Helpers
