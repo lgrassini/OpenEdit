@@ -64,10 +64,16 @@ final class ODTParser {
         for child in textEl.childElements {
             switch child.localName {
             case "p":
-                blocks.append(.paragraph(Paragraph(
-                    runs: parseRuns(child),
-                    styleName: child.attr("text:style-name") ?? ""
-                )))
+                // A paragraph containing only a draw:frame is treated as an image block.
+                if let frameEl = child.childElements.first(where: { $0.localName == "frame" }),
+                   let imgBlock = parseImageFrame(frameEl) {
+                    blocks.append(.image(imgBlock))
+                } else {
+                    blocks.append(.paragraph(Paragraph(
+                        runs: parseRuns(child),
+                        styleName: child.attr("text:style-name") ?? ""
+                    )))
+                }
             case "h":
                 let level = Int(child.attr("text:outline-level") ?? "1") ?? 1
                 blocks.append(.heading(Heading(
@@ -82,6 +88,21 @@ final class ODTParser {
             }
         }
         return blocks
+    }
+
+    // MARK: - Image frame
+
+    private func parseImageFrame(_ frameEl: XMLElement) -> ImageBlock? {
+        guard let imageEl = frameEl.childElements.first(where: { $0.localName == "image" }),
+              let href = imageEl.attr("xlink:href") else { return nil }
+        let w = parseCm(frameEl.attr("svg:width")  ?? "") ?? 6.0
+        let h = parseCm(frameEl.attr("svg:height") ?? "") ?? 4.5
+        return ImageBlock(href: href, width: w, height: h)
+    }
+
+    private func parseCm(_ str: String) -> Double? {
+        if str.hasSuffix("cm") { return Double(str.dropLast(2)) }
+        return Double(str)
     }
 
     // MARK: - Runs

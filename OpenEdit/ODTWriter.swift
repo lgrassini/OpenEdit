@@ -92,8 +92,19 @@ final class ODTWriter {
         case .list(let l):
             return serializeList(l, map: map, root: true)
 
-        case .image:
-            return ""   // Phase 10
+        case .image(let img):
+            let frameName = "img_" + URL(fileURLWithPath: img.href)
+                                         .deletingPathExtension().lastPathComponent
+            let w = String(format: "%.3fcm", img.width)
+            let h = String(format: "%.3fcm", img.height)
+            return "<text:p text:style-name=\"Standard\">" +
+                   "<draw:frame draw:name=\"\(esc(frameName))\" " +
+                   "svg:width=\"\(w)\" svg:height=\"\(h)\" " +
+                   "text:anchor-type=\"paragraph\">" +
+                   "<draw:image xlink:href=\"\(esc(img.href))\" " +
+                   "xlink:type=\"simple\" xlink:show=\"embed\" " +
+                   "xlink:actuate=\"onLoad\"/>" +
+                   "</draw:frame></text:p>\n"
         }
     }
 
