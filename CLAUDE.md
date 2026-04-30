@@ -173,6 +173,32 @@ Proceed? (yes / yes with changes / no)
 
 ---
 
+## Git & GitHub Workflow
+
+The upstream repository is: **https://github.com/lgrassini/OpenEdit.git**
+
+### Branch strategy
+- `main` — stable baseline; only receives merges via reviewed PRs
+- `phase-N-<short-title>` — one branch per phase (e.g. `phase-5-bullets-images`)
+
+### Per-phase Git workflow (Step 3 of each phase execution)
+After the implementation compiles and the step summary is written:
+
+1. **Commit** all changes on the feature branch with a descriptive message.
+2. **Push** the branch to origin.
+3. **Open a PR** against `main` using `gh pr create` with:
+   - A short title (≤ 70 chars): `Phase N — <title>`
+   - A body listing what was built and how to verify it
+4. **Post the PR URL** in the conversation so the user can review and merge.
+
+Do **not** merge the PR yourself. Wait for explicit user confirmation before starting the next phase.
+
+### First commit
+Phases 1–4 were committed directly to `main` as the initial baseline (commit `295c79c`).
+All subsequent work follows the branch + PR workflow above.
+
+---
+
 ## Out of Scope (v1)
 
 - Tables
