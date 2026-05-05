@@ -25,6 +25,7 @@ final class EditorViewController: NSViewController {
     private(set) var textView: NSTextView!
     weak var odtDocument: ODTDocument?
     private var hasLoaded = false
+    private var isAutoDetecting = false
 
     // MARK: Toolbar controls
 
@@ -377,6 +378,171 @@ final class EditorViewController: NSViewController {
         switch depth { case 0: return "• "; case 1: return "◦ "; default: return "▪ " }
     }
 
+    // MARK: - Keyboard list behaviours
+
+    private func handleReturn() -> Bool {
+        guard let storage = textView.textStorage else { return false }
+        let sel = textView.selectedRange()
+        guard sel.length == 0 else { return false }
+        let cursorLoc = sel.location
+        let str = storage.string as NSString
+        let paraRange = str.paragraphRange(for: NSRange(location: cursorLoc, length: 0))
+        guard paraRange.location < storage.length else { return false }
+
+        let code = (storage.attribute(.odtBlockType, at: paraRange.location,
+                                      effectiveRange: nil) as? NSNumber)?.intValue ?? 0
+        guard code >= 10 else { return false }
+
+        let depth  = code - 10
+        let bullet = bulletString(for: depth)
+        let ps     = ModelRenderer.listParagraphStyle(for: depth)
+        let font   = ModelRenderer.font(for: 0)
+
+        var contentStart = paraRange.location
+        storage.enumerateAttribute(.odtListMarker, in: paraRange, options: []) { val, r, stop in
+            if (val as? NSNumber)?.intValue == 1 { contentStart = NSMaxRange(r); stop.pointee = true }
+        }
+
+        let hasNL      = paraRange.length > 0 && str.character(at: NSMaxRange(paraRange) - 1) == 10
+        let contentEnd = NSMaxRange(paraRange) - (hasNL ? 1 : 0)
+        let totalContent = contentEnd - contentStart
+
+        if totalContent == 0 {
+            exitListItem(paraRange: paraRange, in: storage)
+            return true
+        }
+
+        let splitPoint   = min(max(cursorLoc, contentStart), contentEnd)
+        let textAfter    = splitPoint < contentEnd
+            ? str.substring(with: NSRange(location: splitPoint, length: contentEnd - splitPoint))
+            : ""
+
+        let markerAttrs: [NSAttributedString.Key: Any] = [
+            .odtBlockType: NSNumber(value: code), .odtListMarker: NSNumber(value: 1),
+            .font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: ps
+        ]
+        let contentAttrs: [NSAttributedString.Key: Any] = [
+            .odtBlockType: NSNumber(value: code),
+            .font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: ps
+        ]
+
+        let newPara = NSMutableAttributedString(string: "\n", attributes: contentAttrs)
+        newPara.append(NSAttributedString(string: bullet, attributes: markerAttrs))
+        if !textAfter.isEmpty {
+            newPara.append(NSAttributedString(string: textAfter, attributes: contentAttrs))
+        }
+
+        storage.beginEditing()
+        storage.replaceCharacters(in: NSRange(location: splitPoint, length: contentEnd - splitPoint),
+                                  with: newPara)
+        storage.endEditing()
+        textView.setSelectedRange(
+            NSRange(location: splitPoint + 1 + (bullet as NSString).length, length: 0))
+        textView.didChangeText()
+        odtDocument?.markAsEdited()
+        return true
+    }
+
+    private func exitListItem(paraRange: NSRange, in storage: NSTextStorage) {
+        var markerRange = NSRange(location: NSNotFound, length: 0)
+        storage.enumerateAttribute(.odtListMarker, in: paraRange, options: []) { val, r, stop in
+            if (val as? NSNumber)?.intValue == 1 { markerRange = r; stop.pointee = true }
+        }
+
+        let ps   = ModelRenderer.paragraphStyle(for: 0)
+        let font = ModelRenderer.font(for: 0)
+        var newCursorLoc = paraRange.location
+
+        storage.beginEditing()
+        if markerRange.location != NSNotFound {
+            storage.deleteCharacters(in: markerRange)
+            let adjusted = NSRange(location: markerRange.location,
+                                   length: paraRange.length - markerRange.length)
+            if adjusted.length > 0 {
+                storage.addAttribute(.odtBlockType,   value: NSNumber(value: 0), range: adjusted)
+                storage.addAttribute(.paragraphStyle, value: ps,   range: adjusted)
+                storage.addAttribute(.font,           value: font, range: adjusted)
+            }
+            newCursorLoc = markerRange.location
+        } else {
+            storage.addAttribute(.odtBlockType,   value: NSNumber(value: 0), range: paraRange)
+            storage.addAttribute(.paragraphStyle, value: ps,                 range: paraRange)
+        }
+        storage.endEditing()
+
+        textView.setSelectedRange(NSRange(location: newCursorLoc, length: 0))
+        textView.didChangeText()
+        odtDocument?.markAsEdited()
+        updateToolbarState()
+    }
+
+    private func handleTab() -> Bool {
+        guard let storage = textView.textStorage, storage.length > 0 else { return false }
+        let loc  = min(textView.selectedRange().location, storage.length - 1)
+        let code = (storage.attribute(.odtBlockType, at: loc,
+                                      effectiveRange: nil) as? NSNumber)?.intValue ?? 0
+        guard code >= 10 else { return false }
+        adjustIndent(delta: +1)
+        return true
+    }
+
+    private func handleShiftTab() -> Bool {
+        guard let storage = textView.textStorage, storage.length > 0 else { return false }
+        let loc  = min(textView.selectedRange().location, storage.length - 1)
+        let code = (storage.attribute(.odtBlockType, at: loc,
+                                      effectiveRange: nil) as? NSNumber)?.intValue ?? 0
+        guard code >= 10 else { return false }
+        adjustIndent(delta: -1)
+        return true
+    }
+
+    private func checkAutoDetectBullet() {
+        guard !isAutoDetecting, let storage = textView.textStorage else { return }
+        let cursorLoc = textView.selectedRange().location
+        guard cursorLoc >= 2 else { return }
+
+        let str       = storage.string as NSString
+        let paraRange = str.paragraphRange(for: NSRange(location: cursorLoc, length: 0))
+        let typed     = str.substring(with: NSRange(location: paraRange.location,
+                                                     length: cursorLoc - paraRange.location))
+        guard typed == "- " || typed == "* " else { return }
+
+        let code = (storage.attribute(.odtBlockType, at: paraRange.location,
+                                       effectiveRange: nil) as? NSNumber)?.intValue ?? 0
+        guard code < 10 else { return }
+
+        isAutoDetecting = true
+        defer { isAutoDetecting = false }
+
+        let bullet      = bulletString(for: 0)
+        let ps          = ModelRenderer.listParagraphStyle(for: 0)
+        let font        = ModelRenderer.font(for: 0)
+        let markerAttrs: [NSAttributedString.Key: Any] = [
+            .odtBlockType: NSNumber(value: 10), .odtListMarker: NSNumber(value: 1),
+            .font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: ps
+        ]
+
+        let triggerRange   = NSRange(location: paraRange.location, length: 2)
+        let remainderLen   = paraRange.length - 2
+
+        storage.beginEditing()
+        storage.replaceCharacters(in: triggerRange,
+                                  with: NSAttributedString(string: bullet, attributes: markerAttrs))
+        if remainderLen > 0 {
+            let contentRange = NSRange(location: paraRange.location + (bullet as NSString).length,
+                                       length: remainderLen)
+            storage.addAttribute(.odtBlockType,   value: NSNumber(value: 10), range: contentRange)
+            storage.addAttribute(.paragraphStyle, value: ps,                  range: contentRange)
+        }
+        storage.endEditing()
+
+        textView.setSelectedRange(
+            NSRange(location: paraRange.location + (bullet as NSString).length, length: 0))
+        textView.didChangeText()
+        odtDocument?.markAsEdited()
+        updateToolbarState()
+    }
+
     // MARK: - Formatting helpers
 
     private func applyTrait(_ trait: NSFontDescriptor.SymbolicTraits, isOn: Bool) {
@@ -483,10 +649,18 @@ extension EditorViewController: NSTextViewDelegate {
 
     func textDidChange(_ notification: Notification) {
         odtDocument?.markAsEdited()
+        checkAutoDetectBullet()
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
         updateToolbarState()
+    }
+
+    func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(NSTextView.insertNewline(_:)) { return handleReturn() }
+        if commandSelector == #selector(NSTextView.insertTab(_:))     { return handleTab() }
+        if commandSelector == #selector(NSTextView.insertBacktab(_:)) { return handleShiftTab() }
+        return false
     }
 }
 
