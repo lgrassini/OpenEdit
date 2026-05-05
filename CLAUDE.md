@@ -36,6 +36,36 @@ The app must feel at home on macOS: minimal, fast, and built with native framewo
 - Nested bullet lists (at least 3 levels deep)
 - Implemented using ODF `text:list` and `text:list-item` elements
 
+#### List usability
+
+Creating a list — auto-detect:
+If the user starts a line with - or * followed by a space, the line automatically converts into a bullet list item (the trigger character is removed and replaced with a bullet). Same behavior as Apple Notes.
+
+Creating a list — from selection:
+If the user selects one or more lines and clicks the bullet icon in the toolbar, each selected line becomes a list item.
+
+Removing a list — from selection:
+If the user selects one or more list items and clicks the bullet icon again (toggle off), the items convert back to normal body paragraphs.
+
+Adding items:
+Pressing Return inside a list item creates a new empty item at the same nesting level on the line below.
+
+Exiting the list:
+Pressing Return on an empty list item exits the list and creates a normal body paragraph below.
+
+Nesting:
+Pressing Tab while the cursor is on a list item indents it one level deeper (creates a nested list).
+Pressing Shift+Tab outdents it one level. Maximum nesting depth: 3 levels.
+
+Bullet style per level:
+
+Level 1: •
+Level 2: ◦
+Level 3: ▪
+
+
+
+
 ### Images
 - Insert JPG and PNG images via a standard macOS open panel
 - Images must be **embedded** inside the `.odt` file (stored in the `Pictures/` folder within the ODT ZIP container, referenced via `draw:frame` / `draw:image` in the content XML)
