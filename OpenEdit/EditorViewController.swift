@@ -438,6 +438,8 @@ final class EditorViewController: NSViewController {
         storage.endEditing()
         textView.setSelectedRange(
             NSRange(location: splitPoint + 1 + (bullet as NSString).length, length: 0))
+        // Reset typingAttributes so typed text doesn't inherit .odtListMarker from the bullet marker.
+        textView.typingAttributes = contentAttrs
         textView.didChangeText()
         odtDocument?.markAsEdited()
         return true
