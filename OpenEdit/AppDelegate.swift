@@ -73,6 +73,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(.separator())
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
 
+        // Insert (submenu at bottom of Edit, separated by a divider)
+        editMenu.addItem(.separator())
+        let insertItem = NSMenuItem(title: "Insert", action: nil, keyEquivalent: "")
+        let insertMenu = NSMenu(title: "Insert")
+        insertItem.submenu = insertMenu
+
+        insertMenu.addItem(withTitle: "Date",
+                           action: #selector(EditorViewController.insertDate(_:)),
+                           keyEquivalent: "")
+        insertMenu.addItem(withTitle: "Date & Time",
+                           action: #selector(EditorViewController.insertDateTime(_:)),
+                           keyEquivalent: "")
+        insertMenu.addItem(.separator())
+        let imageMenuItem = NSMenuItem(title: "Image\u{2026}",
+                                       action: #selector(EditorViewController.insertImage(_:)),
+                                       keyEquivalent: "I")
+        imageMenuItem.keyEquivalentModifierMask = [.command, .shift]
+        insertMenu.addItem(imageMenuItem)
+        insertMenu.addItem(withTitle: "Horizontal Rule",
+                           action: #selector(EditorViewController.insertHorizontalRule(_:)),
+                           keyEquivalent: "")
+
+        editMenu.addItem(insertItem)
+
         // Format (populated fully in Phase 7+)
         let formatItem = NSMenuItem(title: "Format", action: nil, keyEquivalent: "")
         mainMenu.addItem(formatItem)

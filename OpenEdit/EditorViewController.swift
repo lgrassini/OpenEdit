@@ -300,6 +300,52 @@ final class EditorViewController: NSViewController {
         odtDocument?.markAsEdited()
     }
 
+    // MARK: - Insert menu actions
+
+    @objc func insertDate(_ sender: Any) {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        insertInlineText(fmt.string(from: Date()))
+    }
+
+    @objc func insertDateTime(_ sender: Any) {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd HH:mm"
+        insertInlineText(fmt.string(from: Date()))
+    }
+
+    @objc func insertHorizontalRule(_ sender: Any) {
+        guard let storage = textView.textStorage else { return }
+        let sel = textView.selectedRange()
+        let str = storage.string as NSString
+        let needsBefore = sel.location > 0 && str.character(at: sel.location - 1) != 10
+
+        let insertion = NSMutableAttributedString()
+        if needsBefore { insertion.append(NSAttributedString(string: "\n")) }
+        insertion.append(ModelRenderer.horizontalRuleAttachment())
+        insertion.append(NSAttributedString(string: "\n"))
+
+        storage.beginEditing()
+        storage.replaceCharacters(in: sel, with: insertion)
+        storage.endEditing()
+        textView.didChangeText()
+        odtDocument?.markAsEdited()
+    }
+
+    private func insertInlineText(_ text: String) {
+        guard let storage = textView.textStorage else { return }
+        let sel    = textView.selectedRange()
+        let attrs  = textView.typingAttributes
+        let insert = NSAttributedString(string: text, attributes: attrs)
+        storage.beginEditing()
+        storage.replaceCharacters(in: sel, with: insert)
+        storage.endEditing()
+        textView.setSelectedRange(NSRange(location: sel.location + (text as NSString).length,
+                                          length: 0))
+        textView.didChangeText()
+        odtDocument?.markAsEdited()
+    }
+
     // MARK: - Bullet helpers
 
     private func addBullet(to paraRange: NSRange, depth: Int, in storage: NSTextStorage) {

@@ -4,6 +4,7 @@ import AppKit
 
 extension NSAttributedString.Key {
     /// Block-type tag stored as NSNumber:
+    ///   -2    = horizontal rule
     ///   -1    = image block
     ///    0    = paragraph
     ///    1–4  = heading at that outline level
@@ -80,10 +81,11 @@ struct ModelRenderer {
 
     private func renderBlock(_ block: Block, pictures: [String: Data]) -> NSAttributedString {
         switch block {
-        case .paragraph(let p): return renderParagraph(p)
-        case .heading(let h):   return renderHeading(h)
-        case .list(let l):      return renderListItems(l, depth: 0)
-        case .image(let img):   return renderImage(img, pictures: pictures)
+        case .paragraph(let p):  return renderParagraph(p)
+        case .heading(let h):    return renderHeading(h)
+        case .list(let l):       return renderListItems(l, depth: 0)
+        case .image(let img):    return renderImage(img, pictures: pictures)
+        case .horizontalRule:    return ModelRenderer.horizontalRuleAttachment()
         }
     }
 
@@ -202,6 +204,35 @@ struct ModelRenderer {
             .foregroundColor: NSColor.labelColor,
             .paragraphStyle:  ps
         ]
+    }
+}
+
+// MARK: - Horizontal rule attachment
+
+extension ModelRenderer {
+    /// Creates the attributed string used both when rendering from a model and when
+    /// inserting a new horizontal rule from the menu.
+    static func horizontalRuleAttachment() -> NSAttributedString {
+        let width:  CGFloat = 500
+        let height: CGFloat = 14
+        let ruleImage = NSImage(size: NSSize(width: width, height: height),
+                                flipped: false) { dstRect in
+            NSColor.separatorColor.setStroke()
+            let path = NSBezierPath()
+            path.lineWidth = 0.5
+            let mid = dstRect.height * 0.5
+            path.move(to: NSPoint(x: dstRect.minX, y: mid))
+            path.line(to: NSPoint(x: dstRect.maxX, y: mid))
+            path.stroke()
+            return true
+        }
+        let attachment = NSTextAttachment()
+        attachment.image = ruleImage
+        attachment.bounds = NSRect(x: 0, y: -4, width: width, height: height)
+        let str = NSMutableAttributedString(attachment: attachment)
+        str.addAttribute(.odtBlockType, value: NSNumber(value: -2),
+                         range: NSRange(location: 0, length: 1))
+        return str
     }
 }
 

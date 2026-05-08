@@ -32,10 +32,11 @@ final class ODTWriter {
 
     private func walkBlock(_ block: Block, _ fn: (TextProperties) -> Void) {
         switch block {
-        case .paragraph(let p): p.runs.forEach { fn($0.props) }
-        case .heading(let h):   h.runs.forEach { fn($0.props) }
-        case .list(let l):      walkList(l, fn)
-        case .image:            break
+        case .paragraph(let p):  p.runs.forEach { fn($0.props) }
+        case .heading(let h):    h.runs.forEach { fn($0.props) }
+        case .list(let l):       walkList(l, fn)
+        case .image:             break
+        case .horizontalRule:    break
         }
     }
 
@@ -105,6 +106,9 @@ final class ODTWriter {
                    "xlink:type=\"simple\" xlink:show=\"embed\" " +
                    "xlink:actuate=\"onLoad\"/>" +
                    "</draw:frame></text:p>\n"
+
+        case .horizontalRule:
+            return "<text:p text:style-name=\"HorizontalRule\"> </text:p>\n"
         }
     }
 
@@ -204,6 +208,12 @@ final class ODTWriter {
         <style:style style:name="List_20_Paragraph" style:display-name="List Paragraph" \
         style:family="paragraph" style:parent-style-name="Standard">
         <style:paragraph-properties fo:margin-left="0.635cm"/>
+        </style:style>
+        <style:style style:name="HorizontalRule" \
+        style:display-name="Horizontal Rule" \
+        style:family="paragraph" style:parent-style-name="Standard">
+        <style:paragraph-properties fo:border-bottom="0.5pt solid #808080" \
+        fo:padding-bottom="1mm" fo:margin-top="3mm" fo:margin-bottom="3mm"/>
         </style:style>
         <text:list-style style:name="List_1">
         <text:list-level-style-bullet text:level="1" text:bullet-char="•">
