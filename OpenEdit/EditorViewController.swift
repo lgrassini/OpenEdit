@@ -280,16 +280,18 @@ final class EditorViewController: NSViewController {
                                   .odtImageHref: href],
                                 range: NSRange(location: 0, length: 1))
 
-        // Insert the image on its own line
+        // Insert the image on its own line, always followed by a newline so that any
+        // text typed after the image lands in a new paragraph rather than the same one.
+        // Without the trailing newline the cursor stays in the image's paragraph and
+        // subsequent text gets classified as block type -1, causing silent data loss on save.
         let sel = textView.selectedRange()
         let str = storage.string as NSString
         let needsBefore = sel.location > 0 && str.character(at: sel.location - 1) != 10
-        let needsAfter  = sel.location < storage.length
 
         let insertion = NSMutableAttributedString()
         if needsBefore { insertion.append(NSAttributedString(string: "\n")) }
         insertion.append(attachStr)
-        if needsAfter  { insertion.append(NSAttributedString(string: "\n")) }
+        insertion.append(NSAttributedString(string: "\n"))
 
         storage.beginEditing()
         storage.replaceCharacters(in: sel, with: insertion)
