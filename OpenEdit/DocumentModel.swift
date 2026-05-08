@@ -9,6 +9,7 @@ enum Block {
     case heading(Heading)
     case list(ODTList)
     case image(ImageBlock)
+    case horizontalRule
 }
 
 struct Paragraph {

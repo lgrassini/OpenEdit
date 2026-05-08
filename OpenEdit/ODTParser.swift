@@ -64,14 +64,16 @@ final class ODTParser {
         for child in textEl.childElements {
             switch child.localName {
             case "p":
-                // A paragraph containing only a draw:frame is treated as an image block.
-                if let frameEl = child.childElements.first(where: { $0.localName == "frame" }),
-                   let imgBlock = parseImageFrame(frameEl) {
+                let pStyleName = child.attr("text:style-name") ?? ""
+                if pStyleName == "HorizontalRule" {
+                    blocks.append(.horizontalRule)
+                } else if let frameEl = child.childElements.first(where: { $0.localName == "frame" }),
+                          let imgBlock = parseImageFrame(frameEl) {
                     blocks.append(.image(imgBlock))
                 } else {
                     blocks.append(.paragraph(Paragraph(
                         runs: parseRuns(child),
-                        styleName: child.attr("text:style-name") ?? ""
+                        styleName: pStyleName
                     )))
                 }
             case "h":

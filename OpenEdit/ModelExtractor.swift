@@ -10,6 +10,10 @@ struct ModelExtractor {
             let (range, code) = paras[i]
             switch code {
 
+            case -2: // horizontal rule attachment
+                blocks.append(.horizontalRule)
+                i += 1
+
             case -1: // image attachment
                 if let img = extractImage(from: storage, at: range.location) {
                     blocks.append(.image(img))
