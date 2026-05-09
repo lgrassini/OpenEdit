@@ -4,15 +4,12 @@ import UniformTypeIdentifiers
 // MARK: - Toolbar item identifiers
 
 private extension NSToolbarItem.Identifier {
-    static let stylePicker    = NSToolbarItem.Identifier("stylePicker")
     static let bold           = NSToolbarItem.Identifier("bold")
     static let italic         = NSToolbarItem.Identifier("italic")
     static let strikethrough  = NSToolbarItem.Identifier("strikethrough")
     static let bullets        = NSToolbarItem.Identifier("bullets")
     static let increaseIndent = NSToolbarItem.Identifier("increaseIndent")
     static let decreaseIndent = NSToolbarItem.Identifier("decreaseIndent")
-    static let fontSize       = NSToolbarItem.Identifier("fontSize")
-    static let color          = NSToolbarItem.Identifier("color")
     static let insertImage    = NSToolbarItem.Identifier("insertImage")
 }
 
@@ -29,13 +26,10 @@ final class EditorViewController: NSViewController {
 
     // MARK: Toolbar controls
 
-    private var stylePicker:   NSPopUpButton?
     private var boldButton:    NSButton?
     private var italicButton:  NSButton?
     private var strikeButton:  NSButton?
     private var bulletsButton: NSButton?
-    private var fontSizeField: NSTextField?
-    private var colorWell:     NSColorWell?
 
     // MARK: - View setup
 
@@ -115,10 +109,6 @@ final class EditorViewController: NSViewController {
 
     // MARK: - Block style
 
-    @objc func stylePickerChanged(_ sender: NSPopUpButton) {
-        applyBlockType(sender.indexOfSelectedItem)
-    }
-
     func applyBlockType(_ code: Int) {
         guard let storage = textView.textStorage else { return }
         let font = ModelRenderer.font(for: code)
@@ -150,35 +140,6 @@ final class EditorViewController: NSViewController {
     @objc func toggleStrikethrough(_ sender: NSButton) {
         let value = sender.state == .on ? NSUnderlineStyle.single.rawValue : 0
         applyAttribute(.strikethroughStyle, value: value as NSObject)
-    }
-
-    @objc func fontSizeChanged(_ sender: NSTextField) {
-        let size = CGFloat(sender.doubleValue)
-        guard size >= 4, size <= 288 else { return }
-        guard let storage = textView.textStorage else { return }
-        let sel = textView.selectedRange()
-        if sel.length > 0 {
-            storage.beginEditing()
-            storage.enumerateAttribute(.font, in: sel, options: []) { val, r, _ in
-                guard let f = val as? NSFont,
-                      let nf = NSFont(descriptor: f.fontDescriptor, size: size) else { return }
-                storage.addAttribute(.font, value: nf, range: r)
-            }
-            storage.endEditing()
-            textView.didChangeText()
-            odtDocument?.markAsEdited()
-        } else {
-            var attrs = textView.typingAttributes
-            if let f = attrs[.font] as? NSFont,
-               let nf = NSFont(descriptor: f.fontDescriptor, size: size) {
-                attrs[.font] = nf
-                textView.typingAttributes = attrs
-            }
-        }
-    }
-
-    @objc func colorChanged(_ sender: NSColorWell) {
-        applyAttribute(.foregroundColor, value: sender.color)
     }
 
     // MARK: - Bullets
@@ -717,7 +678,6 @@ final class EditorViewController: NSViewController {
 
     func updateToolbarState() {
         guard let storage = textView.textStorage, storage.length > 0 else {
-            stylePicker?.selectItem(at: 0)
             bulletsButton?.state = .off
             return
         }
@@ -728,22 +688,16 @@ final class EditorViewController: NSViewController {
         let attrs = storage.attributes(at: probe, effectiveRange: nil)
         let code  = (attrs[.odtBlockType] as? NSNumber)?.intValue ?? 0
 
-        stylePicker?.selectItem(at: code >= 10 || code == -1 ? 0 : max(0, min(4, code)))
         bulletsButton?.state = code >= 10 ? .on : .off
 
         if let font = attrs[.font] as? NSFont {
             let traits = font.fontDescriptor.symbolicTraits
             boldButton?.state   = traits.contains(.bold)   ? .on : .off
             italicButton?.state = traits.contains(.italic) ? .on : .off
-            fontSizeField?.doubleValue = Double(font.pointSize)
         }
 
         let strike = (attrs[.strikethroughStyle] as? Int) ?? 0
         strikeButton?.state = strike != 0 ? .on : .off
-
-        if let color = attrs[.foregroundColor] as? NSColor {
-            colorWell?.color = color
-        }
     }
 }
 
@@ -773,13 +727,10 @@ extension EditorViewController: NSTextViewDelegate {
 extension EditorViewController: NSToolbarDelegate {
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.stylePicker, .flexibleSpace,
-         .bold, .italic, .strikethrough,
+        [.bold, .italic, .strikethrough,
          .space,
          .bullets, .increaseIndent, .decreaseIndent,
-         .space,
-         .fontSize, .color,
-         .space,
+         .flexibleSpace,
          .insertImage]
     }
 
@@ -794,18 +745,6 @@ extension EditorViewController: NSToolbarDelegate {
         let item = NSToolbarItem(itemIdentifier: itemIdentifier)
 
         switch itemIdentifier {
-
-        case .stylePicker:
-            let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 130, height: 24))
-            picker.addItems(withTitles: ["Body", "Heading 1", "Heading 2",
-                                         "Heading 3", "Heading 4"])
-            picker.bezelStyle = .rounded
-            picker.target     = self
-            picker.action     = #selector(stylePickerChanged(_:))
-            picker.widthAnchor.constraint(equalToConstant: 130).isActive = true
-            stylePicker = picker
-            item.view   = picker
-            item.label  = "Style"
 
         case .bold:
             let btn = toggleButton(symbol: "bold",   label: "Bold",
@@ -837,24 +776,8 @@ extension EditorViewController: NSToolbarDelegate {
                                       action: #selector(decreaseIndent(_:)))
             item.view = btn;  item.label = "Decrease Indent"
 
-        case .fontSize:
-            let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 44, height: 22))
-            field.placeholderString = "12"
-            field.alignment         = .center
-            field.target            = self
-            field.action            = #selector(fontSizeChanged(_:))
-            field.widthAnchor.constraint(equalToConstant: 44).isActive = true
-            fontSizeField = field;  item.view = field;  item.label = "Size"
-
-        case .color:
-            let well = NSColorWell(frame: NSRect(x: 0, y: 0, width: 36, height: 24))
-            well.color  = .labelColor
-            well.target = self
-            well.action = #selector(colorChanged(_:))
-            colorWell   = well;  item.view = well;  item.label = "Color"
-
         case .insertImage:
-            let btn = momentaryButton(symbol: "photo.badge.plus", label: "Insert Image",
+            let btn = momentaryButton(symbol: "photo", label: "Insert Image",
                                       action: #selector(insertImage(_:)))
             item.view = btn;  item.label = "Insert Image"
 
