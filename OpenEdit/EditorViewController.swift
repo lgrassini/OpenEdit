@@ -184,6 +184,10 @@ final class EditorViewController: NSViewController {
     // MARK: - Bullets
 
     @objc func toggleBullets(_ sender: NSButton) {
+        performToggleBullets()
+    }
+
+    private func performToggleBullets() {
         guard let storage = textView.textStorage else { return }
         var paraInfos: [(range: NSRange, code: Int)] = []
         enumerateParagraphs(in: textView.selectedRange(), storage: storage) { pr in
@@ -344,6 +348,56 @@ final class EditorViewController: NSViewController {
                                           length: 0))
         textView.didChangeText()
         odtDocument?.markAsEdited()
+    }
+
+    // MARK: - Format menu actions
+
+    @objc func menuApplyBody(_ sender: Any)     { applyBlockType(0) }
+    @objc func menuApplyHeading1(_ sender: Any) { applyBlockType(1) }
+    @objc func menuApplyHeading2(_ sender: Any) { applyBlockType(2) }
+    @objc func menuApplyHeading3(_ sender: Any) { applyBlockType(3) }
+    @objc func menuApplyHeading4(_ sender: Any) { applyBlockType(4) }
+
+    @objc func menuToggleBold(_ sender: Any) {
+        applyTrait(.bold, isOn: !currentTraitState(.bold))
+        updateToolbarState()
+    }
+
+    @objc func menuToggleItalic(_ sender: Any) {
+        applyTrait(.italic, isOn: !currentTraitState(.italic))
+        updateToolbarState()
+    }
+
+    @objc func menuToggleStrikethrough(_ sender: Any) {
+        let hasStrike = currentStrikethroughState()
+        applyAttribute(.strikethroughStyle, value: (!hasStrike ? NSUnderlineStyle.single.rawValue : 0) as NSObject)
+        updateToolbarState()
+    }
+
+    @objc func menuToggleList(_ sender: Any) {
+        performToggleBullets()
+    }
+
+    private func currentTraitState(_ trait: NSFontDescriptor.SymbolicTraits) -> Bool {
+        guard let storage = textView.textStorage, storage.length > 0 else {
+            let f = textView.typingAttributes[.font] as? NSFont
+            return f?.fontDescriptor.symbolicTraits.contains(trait) ?? false
+        }
+        let sel = textView.selectedRange()
+        let probe = sel.length > 0 ? sel.location : max(0, sel.location - 1)
+        guard probe < storage.length else { return false }
+        let f = storage.attribute(.font, at: probe, effectiveRange: nil) as? NSFont
+        return f?.fontDescriptor.symbolicTraits.contains(trait) ?? false
+    }
+
+    private func currentStrikethroughState() -> Bool {
+        guard let storage = textView.textStorage, storage.length > 0 else {
+            return ((textView.typingAttributes[.strikethroughStyle] as? Int) ?? 0) != 0
+        }
+        let sel = textView.selectedRange()
+        let probe = sel.length > 0 ? sel.location : max(0, sel.location - 1)
+        guard probe < storage.length else { return false }
+        return ((storage.attribute(.strikethroughStyle, at: probe, effectiveRange: nil) as? Int) ?? 0) != 0
     }
 
     // MARK: - Bullet helpers

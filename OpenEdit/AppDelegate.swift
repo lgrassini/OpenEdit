@@ -97,16 +97,73 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         editMenu.addItem(insertItem)
 
-        // Format (populated fully in Phase 7+)
+        // Format
         let formatItem = NSMenuItem(title: "Format", action: nil, keyEquivalent: "")
         mainMenu.addItem(formatItem)
         let formatMenu = NSMenu(title: "Format")
         formatItem.submenu = formatMenu
-        formatMenu.addItem(withTitle: "Bold", action: #selector(NSFontManager.addFontTrait(_:)), keyEquivalent: "b")
-        formatMenu.addItem(withTitle: "Italic", action: #selector(NSFontManager.addFontTrait(_:)), keyEquivalent: "i")
+
+        // Paragraph Style submenu
+        let paraStyleItem = NSMenuItem(title: "Paragraph Style", action: nil, keyEquivalent: "")
+        let paraStyleMenu = NSMenu(title: "Paragraph Style")
+        paraStyleItem.submenu = paraStyleMenu
+        let h1Item = NSMenuItem(title: "Heading 1",
+                                action: #selector(EditorViewController.menuApplyHeading1(_:)),
+                                keyEquivalent: "1")
+        h1Item.keyEquivalentModifierMask = [.command, .shift]
+        paraStyleMenu.addItem(h1Item)
+        let h2Item = NSMenuItem(title: "Heading 2",
+                                action: #selector(EditorViewController.menuApplyHeading2(_:)),
+                                keyEquivalent: "2")
+        h2Item.keyEquivalentModifierMask = [.command, .shift]
+        paraStyleMenu.addItem(h2Item)
+        let h3Item = NSMenuItem(title: "Heading 3",
+                                action: #selector(EditorViewController.menuApplyHeading3(_:)),
+                                keyEquivalent: "3")
+        h3Item.keyEquivalentModifierMask = [.command, .shift]
+        paraStyleMenu.addItem(h3Item)
+        let h4Item = NSMenuItem(title: "Heading 4",
+                                action: #selector(EditorViewController.menuApplyHeading4(_:)),
+                                keyEquivalent: "4")
+        h4Item.keyEquivalentModifierMask = [.command, .shift]
+        paraStyleMenu.addItem(h4Item)
+        let bodyItem = NSMenuItem(title: "Body",
+                                  action: #selector(EditorViewController.menuApplyBody(_:)),
+                                  keyEquivalent: "b")
+        bodyItem.keyEquivalentModifierMask = [.command, .shift]
+        paraStyleMenu.addItem(bodyItem)
+        formatMenu.addItem(paraStyleItem)
         formatMenu.addItem(.separator())
-        formatMenu.addItem(withTitle: "Font…", action: #selector(NSFontManager.orderFrontFontPanel(_:)), keyEquivalent: "t")
-        formatMenu.addItem(withTitle: "Colors…", action: #selector(NSApplication.orderFrontColorPanel(_:)), keyEquivalent: "C")
+
+        // Character Style submenu
+        let charStyleItem = NSMenuItem(title: "Character Style", action: nil, keyEquivalent: "")
+        let charStyleMenu = NSMenu(title: "Character Style")
+        charStyleItem.submenu = charStyleMenu
+        charStyleMenu.addItem(withTitle: "Bold",
+                              action: #selector(EditorViewController.menuToggleBold(_:)),
+                              keyEquivalent: "b")
+        charStyleMenu.addItem(withTitle: "Italic",
+                              action: #selector(EditorViewController.menuToggleItalic(_:)),
+                              keyEquivalent: "i")
+        charStyleMenu.addItem(withTitle: "Strikethrough",
+                              action: #selector(EditorViewController.menuToggleStrikethrough(_:)),
+                              keyEquivalent: "")
+        formatMenu.addItem(charStyleItem)
+        formatMenu.addItem(.separator())
+
+        // List
+        formatMenu.addItem(withTitle: "List",
+                           action: #selector(EditorViewController.menuToggleList(_:)),
+                           keyEquivalent: "")
+        formatMenu.addItem(.separator())
+
+        // Font and Colors
+        formatMenu.addItem(withTitle: "Font\u{2026}",
+                           action: #selector(NSFontManager.orderFrontFontPanel(_:)),
+                           keyEquivalent: "t")
+        formatMenu.addItem(withTitle: "Colors\u{2026}",
+                           action: #selector(NSApplication.orderFrontColorPanel(_:)),
+                           keyEquivalent: "C")
 
         // View
         let viewItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
