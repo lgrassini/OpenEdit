@@ -111,13 +111,22 @@ final class EditorViewController: NSViewController {
 
     func applyBlockType(_ code: Int) {
         guard let storage = textView.textStorage else { return }
-        let font = ModelRenderer.font(for: code)
-        let ps   = ModelRenderer.paragraphStyle(for: code)
+        let ps = ModelRenderer.paragraphStyle(for: code)
         storage.beginEditing()
         enumerateParagraphs(in: textView.selectedRange(), storage: storage) { pr in
             let existing = (storage.attribute(.odtBlockType, at: pr.location,
                                               effectiveRange: nil) as? NSNumber)?.intValue ?? 0
             guard existing != -1 else { return } // skip image blocks
+            let font: NSFont
+            if code == 5 {
+                // Monospaced: use system monospaced font but preserve the current paragraph's font size.
+                let currentFont = storage.attribute(.font, at: pr.location,
+                                                    effectiveRange: nil) as? NSFont
+                let size = currentFont?.pointSize ?? 12
+                font = .monospacedSystemFont(ofSize: size, weight: .regular)
+            } else {
+                font = ModelRenderer.font(for: code)
+            }
             storage.addAttribute(.odtBlockType,   value: NSNumber(value: code), range: pr)
             storage.addAttribute(.font,           value: font,                  range: pr)
             storage.addAttribute(.paragraphStyle, value: ps,                    range: pr)
@@ -313,11 +322,12 @@ final class EditorViewController: NSViewController {
 
     // MARK: - Format menu actions
 
-    @objc func menuApplyBody(_ sender: Any)     { applyBlockType(0) }
-    @objc func menuApplyHeading1(_ sender: Any) { applyBlockType(1) }
-    @objc func menuApplyHeading2(_ sender: Any) { applyBlockType(2) }
-    @objc func menuApplyHeading3(_ sender: Any) { applyBlockType(3) }
-    @objc func menuApplyHeading4(_ sender: Any) { applyBlockType(4) }
+    @objc func menuApplyBody(_ sender: Any)        { applyBlockType(0) }
+    @objc func menuApplyHeading1(_ sender: Any)    { applyBlockType(1) }
+    @objc func menuApplyHeading2(_ sender: Any)    { applyBlockType(2) }
+    @objc func menuApplyHeading3(_ sender: Any)    { applyBlockType(3) }
+    @objc func menuApplyHeading4(_ sender: Any)    { applyBlockType(4) }
+    @objc func menuApplyMonospaced(_ sender: Any)  { applyBlockType(5) }
 
     @objc func menuToggleBold(_ sender: Any) {
         applyTrait(.bold, isOn: !currentTraitState(.bold))

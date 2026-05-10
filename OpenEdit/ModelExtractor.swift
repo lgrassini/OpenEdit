@@ -26,6 +26,13 @@ struct ModelExtractor {
                                       isListItem: false, blockCode: 0))))
                 i += 1
 
+            case 5: // monospaced paragraph
+                blocks.append(.paragraph(Paragraph(
+                    runs: extractRuns(from: storage, in: range,
+                                      isListItem: false, blockCode: 5),
+                    styleName: "Preformatted_20_Text")))
+                i += 1
+
             case 1...4: // heading
                 blocks.append(.heading(Heading(
                     level: code,
@@ -173,8 +180,8 @@ struct ModelExtractor {
             if traits.contains(.bold)   != nTraits.contains(.bold)   { props.bold   = traits.contains(.bold) }
             if traits.contains(.italic) != nTraits.contains(.italic) { props.italic = traits.contains(.italic) }
 
-            let systemFamily = NSFont.systemFont(ofSize: 12).familyName ?? ""
-            if let family = font.familyName, family != systemFamily { props.fontName = family }
+            let naturalFamily = natural.familyName ?? ""
+            if let family = font.familyName, family != naturalFamily { props.fontName = family }
             if abs(font.pointSize - natural.pointSize) > 0.1 { props.fontSize = Double(font.pointSize) }
         }
 
