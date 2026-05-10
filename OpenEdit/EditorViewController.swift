@@ -110,6 +110,7 @@ final class EditorViewController: NSViewController {
     // MARK: - Block style
 
     func applyBlockType(_ code: Int) {
+        captureUndoSnapshot(actionName: "Paragraph Style")
         guard let storage = textView.textStorage else { return }
         let ps = ModelRenderer.paragraphStyle(for: code)
         storage.beginEditing()
@@ -139,16 +140,16 @@ final class EditorViewController: NSViewController {
     // MARK: - Inline formatting
 
     @objc func toggleBold(_ sender: NSButton) {
-        applyTrait(.bold, isOn: sender.state == .on)
+        applyTrait(.bold, isOn: sender.state == .on, actionName: "Bold")
     }
 
     @objc func toggleItalic(_ sender: NSButton) {
-        applyTrait(.italic, isOn: sender.state == .on)
+        applyTrait(.italic, isOn: sender.state == .on, actionName: "Italic")
     }
 
     @objc func toggleStrikethrough(_ sender: NSButton) {
         let value = sender.state == .on ? NSUnderlineStyle.single.rawValue : 0
-        applyAttribute(.strikethroughStyle, value: value as NSObject)
+        applyAttribute(.strikethroughStyle, value: value as NSObject, actionName: "Strikethrough")
     }
 
     // MARK: - Bullets
@@ -158,6 +159,7 @@ final class EditorViewController: NSViewController {
     }
 
     private func performToggleBullets() {
+        captureUndoSnapshot(actionName: "List")
         guard let storage = textView.textStorage else { return }
         var paraInfos: [(range: NSRange, code: Int)] = []
         enumerateParagraphs(in: textView.selectedRange(), storage: storage) { pr in
@@ -188,6 +190,7 @@ final class EditorViewController: NSViewController {
     @objc func decreaseIndent(_ sender: Any) { adjustIndent(delta: -1) }
 
     private func adjustIndent(delta: Int) {
+        captureUndoSnapshot(actionName: delta > 0 ? "Increase Indent" : "Decrease Indent")
         guard let storage = textView.textStorage else { return }
         var paraInfos: [(range: NSRange, code: Int)] = []
         enumerateParagraphs(in: textView.selectedRange(), storage: storage) { pr in
@@ -228,6 +231,7 @@ final class EditorViewController: NSViewController {
     }
 
     private func insertImage(from url: URL) {
+        captureUndoSnapshot(actionName: "Insert Image")
         guard let storage   = textView.textStorage,
               let imageData = try? Data(contentsOf: url),
               let nsImage   = NSImage(data: imageData) else { return }
@@ -279,16 +283,17 @@ final class EditorViewController: NSViewController {
     @objc func insertDate(_ sender: Any) {
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd"
-        insertInlineText(fmt.string(from: Date()))
+        insertInlineText(fmt.string(from: Date()), actionName: "Insert Date")
     }
 
     @objc func insertDateTime(_ sender: Any) {
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd HH:mm"
-        insertInlineText(fmt.string(from: Date()))
+        insertInlineText(fmt.string(from: Date()), actionName: "Insert Date & Time")
     }
 
     @objc func insertHorizontalRule(_ sender: Any) {
+        captureUndoSnapshot(actionName: "Insert Horizontal Rule")
         guard let storage = textView.textStorage else { return }
         let sel = textView.selectedRange()
         let str = storage.string as NSString
@@ -306,7 +311,8 @@ final class EditorViewController: NSViewController {
         odtDocument?.markAsEdited()
     }
 
-    private func insertInlineText(_ text: String) {
+    private func insertInlineText(_ text: String, actionName: String = "Insert") {
+        captureUndoSnapshot(actionName: actionName)
         guard let storage = textView.textStorage else { return }
         let sel    = textView.selectedRange()
         let attrs  = textView.typingAttributes
@@ -330,18 +336,20 @@ final class EditorViewController: NSViewController {
     @objc func menuApplyMonospaced(_ sender: Any)  { applyBlockType(5) }
 
     @objc func menuToggleBold(_ sender: Any) {
-        applyTrait(.bold, isOn: !currentTraitState(.bold))
+        applyTrait(.bold, isOn: !currentTraitState(.bold), actionName: "Bold")
         updateToolbarState()
     }
 
     @objc func menuToggleItalic(_ sender: Any) {
-        applyTrait(.italic, isOn: !currentTraitState(.italic))
+        applyTrait(.italic, isOn: !currentTraitState(.italic), actionName: "Italic")
         updateToolbarState()
     }
 
     @objc func menuToggleStrikethrough(_ sender: Any) {
         let hasStrike = currentStrikethroughState()
-        applyAttribute(.strikethroughStyle, value: (!hasStrike ? NSUnderlineStyle.single.rawValue : 0) as NSObject)
+        applyAttribute(.strikethroughStyle,
+                       value: (!hasStrike ? NSUnderlineStyle.single.rawValue : 0) as NSObject,
+                       actionName: "Strikethrough")
         updateToolbarState()
     }
 
@@ -466,6 +474,8 @@ final class EditorViewController: NSViewController {
                                       effectiveRange: nil) as? NSNumber)?.intValue ?? 0
         guard code >= 10 else { return false }
 
+        captureUndoSnapshot(actionName: "Return")
+
         let depth  = code - 10
         let bullet = bulletString(for: depth)
         let ps     = ModelRenderer.listParagraphStyle(for: depth)
@@ -589,6 +599,8 @@ final class EditorViewController: NSViewController {
         isAutoDetecting = true
         defer { isAutoDetecting = false }
 
+        captureUndoSnapshot(actionName: "List")
+
         let bullet      = bulletString(for: 0)
         let ps          = ModelRenderer.listParagraphStyle(for: 0)
         let font        = ModelRenderer.font(for: 0)
@@ -618,9 +630,33 @@ final class EditorViewController: NSViewController {
         updateToolbarState()
     }
 
+    // MARK: - Undo snapshot
+
+    /// Captures the full attributed-string state now and registers an undo handler
+    /// that restores it. Call this BEFORE any programmatic storage change.
+    private func captureUndoSnapshot(actionName: String) {
+        guard let storage = textView.textStorage else { return }
+        let snapshot   = NSAttributedString(attributedString: storage)
+        let savedRange = textView.selectedRange()
+        textView.undoManager?.setActionName(actionName)
+        textView.undoManager?.registerUndo(withTarget: self) { [weak self] _ in
+            guard let self = self, let s = self.textView.textStorage else { return }
+            s.beginEditing()
+            s.setAttributedString(snapshot)
+            s.endEditing()
+            let len = s.length
+            let loc = min(savedRange.location, len)
+            let end = min(NSMaxRange(savedRange), len)
+            self.textView.setSelectedRange(NSRange(location: loc, length: end - loc))
+            self.textView.didChangeText()
+            self.updateToolbarState()
+            self.odtDocument?.markAsEdited()
+        }
+    }
+
     // MARK: - Formatting helpers
 
-    private func applyTrait(_ trait: NSFontDescriptor.SymbolicTraits, isOn: Bool) {
+    private func applyTrait(_ trait: NSFontDescriptor.SymbolicTraits, isOn: Bool, actionName: String = "Format") {
         guard let storage = textView.textStorage else { return }
         let sel = textView.selectedRange()
 
@@ -632,6 +668,7 @@ final class EditorViewController: NSViewController {
         }
 
         if sel.length > 0 {
+            captureUndoSnapshot(actionName: actionName)
             storage.beginEditing()
             storage.enumerateAttribute(.font, in: sel, options: []) { val, r, _ in
                 guard let f = val as? NSFont, let nf = converted(f) else { return }
@@ -649,10 +686,11 @@ final class EditorViewController: NSViewController {
         }
     }
 
-    private func applyAttribute(_ key: NSAttributedString.Key, value: NSObject) {
+    private func applyAttribute(_ key: NSAttributedString.Key, value: NSObject, actionName: String = "Format") {
         guard let storage = textView.textStorage else { return }
         let sel = textView.selectedRange()
         if sel.length > 0 {
+            captureUndoSnapshot(actionName: actionName)
             storage.beginEditing()
             storage.addAttribute(key, value: value, range: sel)
             storage.endEditing()

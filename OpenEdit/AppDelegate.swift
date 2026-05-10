@@ -62,8 +62,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(editItem)
         let editMenu = NSMenu(title: "Edit")
         editItem.submenu = editMenu
-        editMenu.addItem(withTitle: "Undo", action: #selector(UndoManager.undo), keyEquivalent: "z")
-        let redo = NSMenuItem(title: "Redo", action: #selector(UndoManager.redo), keyEquivalent: "Z")
+        editMenu.addItem(withTitle: "Undo", action: Selector("undo:"), keyEquivalent: "z")
+        let redo = NSMenuItem(title: "Redo", action: Selector("redo:"), keyEquivalent: "Z")
         redo.keyEquivalentModifierMask = [.command, .shift]
         editMenu.addItem(redo)
         editMenu.addItem(.separator())
