@@ -209,6 +209,10 @@ final class ODTWriter {
         style:family="paragraph" style:parent-style-name="Standard">
         <style:paragraph-properties fo:margin-left="0.635cm"/>
         </style:style>
+        <style:style style:name="Preformatted_20_Text" style:display-name="Preformatted Text" \
+        style:family="paragraph" style:parent-style-name="Standard">
+        <style:text-properties style:font-name="Courier New" fo:font-size="12pt"/>
+        </style:style>
         <style:style style:name="HorizontalRule" \
         style:display-name="Horizontal Rule" \
         style:family="paragraph" style:parent-style-name="Standard">

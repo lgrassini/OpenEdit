@@ -132,6 +132,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                                   keyEquivalent: "b")
         bodyItem.keyEquivalentModifierMask = [.command, .shift]
         paraStyleMenu.addItem(bodyItem)
+        let monoItem = NSMenuItem(title: "Monospaced",
+                                  action: #selector(EditorViewController.menuApplyMonospaced(_:)),
+                                  keyEquivalent: "m")
+        monoItem.keyEquivalentModifierMask = [.command, .shift]
+        paraStyleMenu.addItem(monoItem)
         formatMenu.addItem(paraStyleItem)
         formatMenu.addItem(.separator())
 

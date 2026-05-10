@@ -8,6 +8,7 @@ extension NSAttributedString.Key {
     ///   -1    = image block
     ///    0    = paragraph
     ///    1–4  = heading at that outline level
+    ///    5    = monospaced paragraph
     ///   10    = list item, depth 0 (top-level)
     ///   11    = list item, depth 1
     ///   12    = list item, depth 2
@@ -24,13 +25,14 @@ extension NSAttributedString.Key {
 
 extension ModelRenderer {
 
-    /// Canonical font for a given block code (0 = paragraph, 1–4 = heading level).
+    /// Canonical font for a given block code (0 = paragraph, 1–4 = heading level, 5 = monospaced).
     static func font(for code: Int) -> NSFont {
         switch code {
         case 1: return .boldSystemFont(ofSize: 20)
         case 2: return .boldSystemFont(ofSize: 17)
         case 3: return .boldSystemFont(ofSize: 14)
         case 4: return .boldSystemFont(ofSize: 12)
+        case 5: return .monospacedSystemFont(ofSize: 12, weight: .regular)
         default: return .systemFont(ofSize: 12)
         }
     }
@@ -89,9 +91,15 @@ struct ModelRenderer {
         }
     }
 
+    private static let monospacedStyleNames: Set<String> = [
+        "Preformatted_20_Text", "Preformatted Text"
+    ]
+
     private func renderParagraph(_ p: Paragraph) -> NSAttributedString {
-        let font = ModelRenderer.font(for: 0)
-        let base = blockAttrs(code: 0, font: font, ps: ModelRenderer.paragraphStyle(for: 0))
+        let isMonospaced = Self.monospacedStyleNames.contains(p.styleName)
+        let code = isMonospaced ? 5 : 0
+        let font = ModelRenderer.font(for: code)
+        let base = blockAttrs(code: code, font: font, ps: ModelRenderer.paragraphStyle(for: 0))
         return applyRuns(p.runs, base: base, baseFont: font)
     }
 
