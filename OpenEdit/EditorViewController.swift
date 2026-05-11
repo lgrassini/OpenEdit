@@ -641,6 +641,11 @@ final class EditorViewController: NSViewController {
         textView.undoManager?.setActionName(actionName)
         textView.undoManager?.registerUndo(withTarget: self) { [weak self] _ in
             guard let self = self, let s = self.textView.textStorage else { return }
+            // Capture current state before restoring. When called during undo
+            // (isUndoing == true), NSUndoManager places this on the redo stack;
+            // when called during redo (isRedoing == true), it goes back on the
+            // undo stack — giving correct, infinite undo/redo cycling.
+            self.captureUndoSnapshot(actionName: actionName)
             s.beginEditing()
             s.setAttributedString(snapshot)
             s.endEditing()
