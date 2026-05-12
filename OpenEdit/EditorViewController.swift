@@ -115,6 +115,10 @@ final class EditorViewController: NSViewController {
         let ps = ModelRenderer.paragraphStyle(for: code)
         storage.beginEditing()
         enumerateParagraphs(in: textView.selectedRange(), storage: storage) { pr in
+            // The cursor can sit one position past the end of storage on an empty
+            // trailing paragraph (e.g. right after pressing Return at end of document).
+            // Accessing storage attributes at that index crashes with "out of bounds".
+            guard pr.location < storage.length else { return }
             let existing = (storage.attribute(.odtBlockType, at: pr.location,
                                               effectiveRange: nil) as? NSNumber)?.intValue ?? 0
             guard existing != -1 else { return } // skip image blocks
@@ -133,6 +137,18 @@ final class EditorViewController: NSViewController {
             storage.addAttribute(.paragraphStyle, value: ps,                    range: pr)
         }
         storage.endEditing()
+        // Mirror the style into typingAttributes so text typed into an empty paragraph
+        // (which has no storage characters to carry attributes) uses the applied style.
+        let typingFont: NSFont
+        if code == 5 {
+            let size = (textView.typingAttributes[.font] as? NSFont)?.pointSize ?? 12
+            typingFont = .monospacedSystemFont(ofSize: size, weight: .regular)
+        } else {
+            typingFont = ModelRenderer.font(for: code)
+        }
+        textView.typingAttributes[.odtBlockType]   = NSNumber(value: code)
+        textView.typingAttributes[.font]           = typingFont
+        textView.typingAttributes[.paragraphStyle] = ps
         textView.didChangeText()
         odtDocument?.markAsEdited()
     }
