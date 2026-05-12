@@ -79,6 +79,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        let pasteMatchStyle = NSMenuItem(title: "Paste and Match Style",
+                                         action: #selector(NSTextView.pasteAsPlainText(_:)),
+                                         keyEquivalent: "v")
+        pasteMatchStyle.keyEquivalentModifierMask = [.command, .option, .shift]
+        editMenu.addItem(pasteMatchStyle)
         editMenu.addItem(.separator())
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
 
