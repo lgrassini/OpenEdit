@@ -24,6 +24,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - Undo / Redo
+
+    // Declared here so #selector(AppDelegate.undo(_:)) compiles. The menu items
+    // use a nil target, so AppKit dispatches through the responder chain; NSTextView
+    // (first responder) handles the action before reaching AppDelegate. These
+    // methods are a correct fallback when no text view is active.
+    @objc func undo(_ sender: Any?) { NSApp.keyWindow?.undoManager?.undo() }
+    @objc func redo(_ sender: Any?) { NSApp.keyWindow?.undoManager?.redo() }
+
     // MARK: - Menu
 
     private func buildMainMenu() {
@@ -62,8 +71,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(editItem)
         let editMenu = NSMenu(title: "Edit")
         editItem.submenu = editMenu
-        editMenu.addItem(withTitle: "Undo", action: Selector("undo:"), keyEquivalent: "z")
-        let redo = NSMenuItem(title: "Redo", action: Selector("redo:"), keyEquivalent: "Z")
+        editMenu.addItem(withTitle: "Undo", action: #selector(AppDelegate.undo(_:)), keyEquivalent: "z")
+        let redo = NSMenuItem(title: "Redo", action: #selector(AppDelegate.redo(_:)), keyEquivalent: "Z")
         redo.keyEquivalentModifierMask = [.command, .shift]
         editMenu.addItem(redo)
         editMenu.addItem(.separator())
