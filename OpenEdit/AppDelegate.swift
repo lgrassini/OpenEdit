@@ -1,6 +1,10 @@
 import AppKit
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+
+    private var openRecentMenuItem: NSMenuItem?
+    private var openRecentMenu: NSMenu?
+    private var fileMenu: NSMenu?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMainMenu()
@@ -33,6 +37,48 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func undo(_ sender: Any?) { NSApp.keyWindow?.undoManager?.undo() }
     @objc func redo(_ sender: Any?) { NSApp.keyWindow?.undoManager?.redo() }
 
+    // MARK: - NSMenuDelegate
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu === openRecentMenu {
+            populateOpenRecentMenu(menu)
+        } else if menu === fileMenu {
+            openRecentMenuItem?.isEnabled = !NSDocumentController.shared.recentDocumentURLs.isEmpty
+        }
+    }
+
+    private func populateOpenRecentMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let urls = Array(NSDocumentController.shared.recentDocumentURLs.prefix(8))
+        for url in urls {
+            let item = NSMenuItem(title: url.lastPathComponent,
+                                  action: #selector(openRecentDocument(_:)),
+                                  keyEquivalent: "")
+            item.representedObject = url
+            item.target = self
+            item.isEnabled = true
+            menu.addItem(item)
+        }
+        if !urls.isEmpty {
+            menu.addItem(.separator())
+        }
+        let clearItem = NSMenuItem(title: "Clear Menu",
+                                   action: #selector(clearRecentDocuments(_:)),
+                                   keyEquivalent: "")
+        clearItem.target = self
+        clearItem.isEnabled = !urls.isEmpty
+        menu.addItem(clearItem)
+    }
+
+    @objc private func openRecentDocument(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, _ in }
+    }
+
+    @objc private func clearRecentDocuments(_ sender: Any?) {
+        NSDocumentController.shared.clearRecentDocuments(sender)
+    }
+
     // MARK: - Menu
 
     private func buildMainMenu() {
@@ -56,9 +102,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let fileItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
         mainMenu.addItem(fileItem)
         let fileMenu = NSMenu(title: "File")
+        fileMenu.delegate = self
+        self.fileMenu = fileMenu
         fileItem.submenu = fileMenu
         fileMenu.addItem(withTitle: "New", action: #selector(NSDocumentController.newDocument(_:)), keyEquivalent: "n")
         fileMenu.addItem(withTitle: "Open…", action: #selector(NSDocumentController.openDocument(_:)), keyEquivalent: "o")
+
+        let openRecentMenu = NSMenu(title: "Open Recent")
+        openRecentMenu.autoenablesItems = false
+        openRecentMenu.delegate = self
+        let openRecentItem = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
+        openRecentItem.submenu = openRecentMenu
+        fileMenu.addItem(openRecentItem)
+        self.openRecentMenuItem = openRecentItem
+        self.openRecentMenu = openRecentMenu
+
         fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         fileMenu.addItem(withTitle: "Save", action: #selector(NSDocument.save(_:)), keyEquivalent: "s")
