@@ -19,7 +19,7 @@ final class EditorViewController: NSViewController {
 
     // MARK: Text view
 
-    private(set) var textView: NSTextView!
+    private(set) var textView: ODTTextView!
     weak var odtDocument: ODTDocument?
     private var hasLoaded = false
     private var isAutoDetecting = false
@@ -42,7 +42,7 @@ final class EditorViewController: NSViewController {
         scrollView.backgroundColor       = .textBackgroundColor
 
         let contentSize = scrollView.contentSize
-        let tv = NSTextView(frame: NSRect(origin: .zero, size: contentSize))
+        let tv = ODTTextView(frame: NSRect(origin: .zero, size: contentSize))
         tv.minSize                    = NSSize(width: 0, height: contentSize.height)
         tv.maxSize                    = NSSize(width: CGFloat.greatestFiniteMagnitude,
                                                height: CGFloat.greatestFiniteMagnitude)
@@ -65,6 +65,7 @@ final class EditorViewController: NSViewController {
         tv.textColor                  = .labelColor
         tv.delegate                   = self
 
+        tv.editorViewController = self
         scrollView.documentView = tv
         textView = tv
         view = scrollView
@@ -246,28 +247,30 @@ final class EditorViewController: NSViewController {
         }
     }
 
-    private func insertImage(from url: URL) {
+    func insertImage(from url: URL) {
+        guard let imageData = try? Data(contentsOf: url) else { return }
+        let ext = url.pathExtension.lowercased().isEmpty ? "png" : url.pathExtension.lowercased()
+        insertImage(data: imageData, fileExtension: ext)
+    }
+
+    func insertImage(data imageData: Data, fileExtension ext: String) {
         captureUndoSnapshot(actionName: "Insert Image")
-        guard let storage   = textView.textStorage,
-              let imageData = try? Data(contentsOf: url),
-              let nsImage   = NSImage(data: imageData) else { return }
+        guard let storage = textView.textStorage,
+              let nsImage = NSImage(data: imageData) else { return }
 
-        let ext      = url.pathExtension.lowercased().isEmpty ? "png" : url.pathExtension.lowercased()
-        let uid      = UUID().uuidString.prefix(8)
-        let href     = "Pictures/image_\(uid).\(ext)"
+        let uid  = UUID().uuidString.prefix(8)
+        let href = "Pictures/image_\(uid).\(ext)"
 
-        // Store image data in the package for ODT serialization
         odtDocument?.package.pictures[href] = imageData
 
-        // Scale to fit the editor's text width
         let maxWidth: CGFloat = 440
-        let scale      = min(1.0, maxWidth / nsImage.size.width)
+        let scale       = min(1.0, maxWidth / nsImage.size.width)
         let displaySize = NSSize(width:  nsImage.size.width  * scale,
                                  height: nsImage.size.height * scale)
 
-        let attachment        = NSTextAttachment()
-        attachment.image      = nsImage
-        attachment.bounds     = NSRect(origin: .zero, size: displaySize)
+        let attachment       = NSTextAttachment()
+        attachment.image     = nsImage
+        attachment.bounds    = NSRect(origin: .zero, size: displaySize)
 
         let attachStr = NSMutableAttributedString(attachment: attachment)
         attachStr.addAttributes([.odtBlockType: NSNumber(value: -1),
@@ -278,8 +281,8 @@ final class EditorViewController: NSViewController {
         // text typed after the image lands in a new paragraph rather than the same one.
         // Without the trailing newline the cursor stays in the image's paragraph and
         // subsequent text gets classified as block type -1, causing silent data loss on save.
-        let sel = textView.selectedRange()
-        let str = storage.string as NSString
+        let sel    = textView.selectedRange()
+        let str    = storage.string as NSString
         let needsBefore = sel.location > 0 && str.character(at: sel.location - 1) != 10
 
         let insertion = NSMutableAttributedString()
@@ -880,5 +883,170 @@ extension EditorViewController: NSToolbarDelegate {
         btn.target     = self
         btn.action     = action
         return btn
+    }
+}
+
+// MARK: - ODTTextView
+
+/// NSTextView subclass that extends the default drag-and-drop handling to accept
+/// image files (JPG/PNG) from Finder and raw image data from other apps (Photos,
+/// Safari, Preview). Images dropped this way are inserted at the drop position
+/// using the same embedding logic as the toolbar Insert Image button.
+final class ODTTextView: NSTextView {
+
+    weak var editorViewController: EditorViewController?
+
+    // Selection active before an image drag entered, restored on drag exit/cancel.
+    private var preDragSelection: NSRange?
+
+    // MARK: Init
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        addImageDragTypes()
+    }
+
+    override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
+        super.init(frame: frameRect, textContainer: container)
+        addImageDragTypes()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        addImageDragTypes()
+    }
+
+    private func addImageDragTypes() {
+        let extra: [NSPasteboard.PasteboardType] = [
+            .fileURL,
+            .tiff,
+            NSPasteboard.PasteboardType(rawValue: UTType.png.identifier),
+            NSPasteboard.PasteboardType(rawValue: UTType.jpeg.identifier)
+        ]
+        var types = registeredDraggedTypes
+        for t in extra where !types.contains(t) { types.append(t) }
+        registerForDraggedTypes(types)
+    }
+
+    // MARK: Drag source classification
+
+    private enum ImageDragSource {
+        case fileURL(URL)
+        case rawData(Data, String)   // (data, file extension)
+    }
+
+    private func imageDragSource(from pasteboard: NSPasteboard) -> ImageDragSource? {
+        // File URL dragged from Finder — validate JPG or PNG only.
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self],
+                                             options: [.urlReadingFileURLsOnly: true]) as? [URL],
+           let url = urls.first {
+            let ext = url.pathExtension.lowercased()
+            let accepted: Bool
+            if let utType = UTType(filenameExtension: ext) {
+                accepted = utType.conforms(to: .jpeg) || utType.conforms(to: .png)
+            } else {
+                accepted = ext == "jpg" || ext == "jpeg" || ext == "png"
+            }
+            // Reject non-image file URLs gracefully (fall through returns nil).
+            return accepted ? .fileURL(url) : nil
+        }
+
+        // Raw image data from Photos, Safari, Preview, etc.
+        // Prefer PNG, then JPEG, then TIFF (converted to PNG for ODT compatibility).
+        let pngType  = NSPasteboard.PasteboardType(rawValue: UTType.png.identifier)
+        let jpegType = NSPasteboard.PasteboardType(rawValue: UTType.jpeg.identifier)
+
+        if let data = pasteboard.data(forType: pngType),  NSImage(data: data) != nil {
+            return .rawData(data, "png")
+        }
+        if let data = pasteboard.data(forType: jpegType), NSImage(data: data) != nil {
+            return .rawData(data, "jpg")
+        }
+        if let data = pasteboard.data(forType: .tiff) {
+            // Convert TIFF → PNG so the embedded image is ODT-compatible.
+            if let png = Self.tiffToPNG(data) { return .rawData(png,  "png") }
+            if NSImage(data: data) != nil      { return .rawData(data, "tif") }
+        }
+
+        return nil
+    }
+
+    private static func tiffToPNG(_ tiffData: Data) -> Data? {
+        guard let image  = NSImage(data: tiffData),
+              let cgImg  = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return nil
+        }
+        return NSBitmapImageRep(cgImage: cgImg).representation(using: .png, properties: [:])
+    }
+
+    // MARK: NSDraggingDestination
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard imageDragSource(from: sender.draggingPasteboard) != nil else {
+            return super.draggingEntered(sender)
+        }
+        preDragSelection = selectedRange()
+        moveCaretToDrop(sender)
+        return .copy
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard imageDragSource(from: sender.draggingPasteboard) != nil else {
+            return super.draggingUpdated(sender)
+        }
+        moveCaretToDrop(sender)
+        return .copy
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        if let saved = preDragSelection {
+            setSelectedRange(saved)
+            preDragSelection = nil
+        }
+        super.draggingExited(sender)
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard imageDragSource(from: sender.draggingPasteboard) != nil else {
+            return super.prepareForDragOperation(sender)
+        }
+        return true
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let source = imageDragSource(from: sender.draggingPasteboard) else {
+            return super.performDragOperation(sender)
+        }
+        preDragSelection = nil
+
+        // Place the insertion point at the drop location so the shared
+        // insertImage methods embed the image at the correct position.
+        let dropIdx = dropCharacterIndex(at: sender.draggingLocation)
+        setSelectedRange(NSRange(location: dropIdx, length: 0))
+
+        switch source {
+        case .fileURL(let url):
+            editorViewController?.insertImage(from: url)
+        case .rawData(let data, let ext):
+            editorViewController?.insertImage(data: data, fileExtension: ext)
+        }
+        return true
+    }
+
+    // MARK: Helpers
+
+    private func moveCaretToDrop(_ info: NSDraggingInfo) {
+        setSelectedRange(NSRange(location: dropCharacterIndex(at: info.draggingLocation),
+                                 length: 0))
+    }
+
+    private func dropCharacterIndex(at windowPoint: NSPoint) -> Int {
+        let viewPoint = convert(windowPoint, from: nil)
+        guard let lm = layoutManager, let tc = textContainer else { return 0 }
+        let containerPoint = NSPoint(x: viewPoint.x - textContainerOrigin.x,
+                                     y: viewPoint.y - textContainerOrigin.y)
+        return lm.characterIndex(for: containerPoint,
+                                  in: tc,
+                                  fractionOfDistanceBetweenInsertionPoints: nil)
     }
 }
