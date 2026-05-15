@@ -9,10 +9,12 @@ final class ODTWriter {
         var styleList: [(name: String, props: TextProperties)] = []
 
         walkRuns(model) { props in
-            guard props != .plain, styleMap[props] == nil else { return }
+            var p = props
+            p.href = nil  // links are structural (text:a), not character styles
+            guard p != .plain, styleMap[p] == nil else { return }
             let name = "T\(styleList.count + 1)"
-            styleMap[props] = name
-            styleList.append((name: name, props: props))
+            styleMap[p] = name
+            styleList.append((name: name, props: p))
         }
 
         package.contentXML  = buildContentXML(model: model,
@@ -115,8 +117,13 @@ final class ODTWriter {
     private func runs(_ rawRuns: [Run], _ map: [TextProperties: String]) -> String {
         coalesce(rawRuns).map { run in
             let t = escText(run.text)
-            guard let sn = map[run.props] else { return t }
-            return "<text:span text:style-name=\"\(sn)\">\(t)</text:span>"
+            var styleProps = run.props
+            styleProps.href = nil
+            let inner = styleProps == .plain
+                ? t
+                : map[styleProps].map { "<text:span text:style-name=\"\($0)\">\(t)</text:span>" } ?? t
+            guard let href = run.props.href else { return inner }
+            return "<text:a xlink:type=\"simple\" xlink:href=\"\(esc(href))\">\(inner)</text:a>"
         }.joined()
     }
 

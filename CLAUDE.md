@@ -159,6 +159,27 @@ Suggested classes:
 
 ---
 
+## Native-First Rule
+
+**Before implementing any UI behaviour or action, check whether AppKit already provides it.**
+
+AppKit is rich. Many things that look like features to build are already built:
+
+| Example | Native API |
+|---|---|
+| Add / Edit / Remove Link | `NSTextView.orderFrontLinkPanel(_:)` + built-in context menu |
+| Link styling (colour, underline, hand cursor) | `NSTextView.linkTextAttributes` (temporary attrs, zero storage overhead) |
+| Font picker | `NSFontManager.orderFrontFontPanel(_:)` |
+| Colour picker | `NSApp.orderFrontColorPanel(_:)` |
+| Spell check | Built into `NSTextView` |
+| Undo / Redo | `NSUndoManager` via `NSTextView` |
+| Find & Replace | `NSTextView.usesFindPanel` |
+| Standard Edit actions (Cut/Copy/Paste/Select All) | First-responder action methods on `NSText` |
+
+**The rule:** if a right-click or system menu already shows the desired action, wire a menu-bar item to the same selector via the responder chain (nil target) rather than reimplementing it. Only build custom UI when the native component genuinely cannot meet the requirement.
+
+---
+
 ## Testing
 
 - Verify that files saved by this app can be opened in **LibreOffice** and display correctly

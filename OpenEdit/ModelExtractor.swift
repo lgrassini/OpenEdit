@@ -190,6 +190,15 @@ struct ModelExtractor {
         if let color = attrs[.foregroundColor] as? NSColor, !color.isEqual(NSColor.labelColor) {
             props.color = color.odtHex
         }
+
+        // .link is written by NSTextView's native link panel (orderFrontLinkPanel:).
+        // linkTextAttributes are temporary (display-only), so only .link itself lives
+        // in NSTextStorage — no risk of picking up the link colour as an explicit color.
+        if let linkAttr = attrs[.link] {
+            if let url = linkAttr as? URL { props.href = url.absoluteString }
+            else if let str = linkAttr as? String { props.href = str }
+        }
+
         return props
     }
 
