@@ -773,6 +773,21 @@ final class EditorViewController: NSViewController {
     }
 }
 
+// MARK: - NSMenuItemValidation
+
+extension EditorViewController: NSMenuItemValidation {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(NSTextView.orderFrontLinkPanel(_:)) {
+            let sel = textView.selectedRange()
+            let probe = sel.length > 0 ? sel.location : max(0, sel.location - 1)
+            let hasLink = (probe < (textView.textStorage?.length ?? 0))
+                && textView.textStorage?.attribute(.link, at: probe, effectiveRange: nil) != nil
+            menuItem.title = hasLink ? "Edit Link\u{2026}" : "Add Link\u{2026}"
+        }
+        return true
+    }
+}
+
 // MARK: - NSTextViewDelegate
 
 extension EditorViewController: NSTextViewDelegate {
@@ -791,6 +806,16 @@ extension EditorViewController: NSTextViewDelegate {
         if commandSelector == #selector(NSTextView.insertTab(_:))     { return handleTab() }
         if commandSelector == #selector(NSTextView.insertBacktab(_:)) { return handleShiftTab() }
         return false
+    }
+
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+        let url: URL?
+        if let u = link as? URL { url = u }
+        else if let s = link as? String { url = URL(string: s) }
+        else { url = nil }
+        guard let url else { return false }
+        NSWorkspace.shared.open(url)
+        return true
     }
 }
 

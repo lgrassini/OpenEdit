@@ -179,6 +179,12 @@ struct ModelRenderer {
             if let hex = run.props.color, let c = NSColor(odtHex: hex) {
                 a[.foregroundColor] = c
             }
+            // .link is a standard NSAttributedString key; NSTextView applies link
+            // colour, underline, and pointing-hand cursor automatically via
+            // linkTextAttributes (temporary attributes — they never land in storage).
+            if let href = run.props.href {
+                a[.link] = URL(string: href) ?? href
+            }
             out.append(NSAttributedString(string: run.text, attributes: a))
         }
         return out

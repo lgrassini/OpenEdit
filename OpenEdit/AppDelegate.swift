@@ -169,6 +169,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         editMenu.addItem(insertItem)
 
+        let addLinkItem = NSMenuItem(title: "Add Link\u{2026}",
+                                     action: #selector(NSTextView.orderFrontLinkPanel(_:)),
+                                     keyEquivalent: "k")
+        editMenu.addItem(addLinkItem)
+
         // Format
         let formatItem = NSMenuItem(title: "Format", action: nil, keyEquivalent: "")
         mainMenu.addItem(formatItem)

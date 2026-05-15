@@ -118,6 +118,10 @@ final class ODTParser {
                 case "span":
                     let spanProps = charStyles[child.attr("text:style-name") ?? ""] ?? .plain
                     runs += parseRuns(child, inheritedProps: inheritedProps.merging(spanProps))
+                case "a":
+                    var aProps = inheritedProps
+                    aProps.href = child.attr("xlink:href")
+                    runs += parseRuns(child, inheritedProps: aProps)
                 case "s":
                     let n = Int(child.attr("text:c") ?? "1") ?? 1
                     runs.append(Run(text: String(repeating: " ", count: max(1, n)),

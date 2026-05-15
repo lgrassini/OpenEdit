@@ -69,6 +69,7 @@ struct TextProperties: Equatable, Hashable {
     var fontName: String?
     var fontSize: Double?    // points
     var color: String?       // "#RRGGBB"
+    var href: String?        // hyperlink URL (maps to text:a xlink:href)
 
     static let plain = TextProperties()
 
@@ -84,7 +85,8 @@ struct TextProperties: Equatable, Hashable {
             strikethrough: child.strikethrough ?? strikethrough,
             fontName:      child.fontName      ?? fontName,
             fontSize:      child.fontSize      ?? fontSize,
-            color:         child.color         ?? color
+            color:         child.color         ?? color,
+            href:          child.href          ?? href
         )
     }
 }
