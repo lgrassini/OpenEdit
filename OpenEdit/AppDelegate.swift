@@ -7,6 +7,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var fileMenu: NSMenu?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        UserDefaults.standard.register(defaults: [
+            "NSAllowContinuousSpellChecking": true,
+            "NSGrammarCheckingEnabled": true,
+            "NSAutomaticSpellingCorrectionEnabled": false
+        ])
         buildMainMenu()
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -144,6 +149,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         editMenu.addItem(pasteMatchStyle)
         editMenu.addItem(.separator())
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenu.addItem(.separator())
+
+        let spellingItem = NSMenuItem(title: "Spelling and Grammar", action: nil, keyEquivalent: "")
+        let spellingMenu = NSMenu(title: "Spelling and Grammar")
+        spellingItem.submenu = spellingMenu
+        spellingMenu.addItem(withTitle: "Show Spelling and Grammar",
+                             action: #selector(NSTextView.showGuessPanel(_:)),
+                             keyEquivalent: ":")
+        spellingMenu.addItem(withTitle: "Check Document Now",
+                             action: #selector(NSTextView.checkSpelling(_:)),
+                             keyEquivalent: ";")
+        spellingMenu.addItem(.separator())
+        spellingMenu.addItem(withTitle: "Check Spelling While Typing",
+                             action: #selector(NSTextView.toggleContinuousSpellChecking(_:)),
+                             keyEquivalent: "")
+        spellingMenu.addItem(withTitle: "Check Grammar With Spelling",
+                             action: #selector(NSTextView.toggleGrammarChecking(_:)),
+                             keyEquivalent: "")
+        spellingMenu.addItem(withTitle: "Correct Spelling Automatically",
+                             action: #selector(NSTextView.toggleAutomaticSpellingCorrection(_:)),
+                             keyEquivalent: "")
+        editMenu.addItem(spellingItem)
 
         // Insert (submenu at bottom of Edit, separated by a divider)
         editMenu.addItem(.separator())
